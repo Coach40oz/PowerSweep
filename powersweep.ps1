@@ -8,7 +8,7 @@
     and attempts to determine device types.
 .NOTES
     Author: Ulises Paiz
-    Version: 1.17
+    Version: 1.2
 #>
 
 function Get-LocalNetworkInfo {
@@ -76,7 +76,6 @@ function Get-LocalNetworkInfo {
     # Calculate network address
     $ipBytes = ([IPAddress]$ipAddress).GetAddressBytes()
     $maskBytes = $subnetMask.GetAddressBytes()
-    $networkBytes = New-Object Byte[] 4
     
     # Reverse the byte arrays for proper calculation
     [Array]::Reverse($ipBytes)
@@ -163,8 +162,10 @@ function Test-Port {
     param (
         [Parameter(Mandatory=$true)]
         [string]$IPAddress,
+        
         [Parameter(Mandatory=$true)]
         [int]$Port,
+        
         [int]$Timeout = 500
     )
     
@@ -180,125 +181,6 @@ function Test-Port {
         return $false
     } finally {
         $tcpClient.Close()
-    }
-}
-
-function Get-DeviceType {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$IPAddress,
-        [Parameter(Mandatory=$true)]
-        [array]$OpenPorts,
-        [Parameter(Mandatory=$false)]
-        [string]$Hostname = "",
-        [Parameter(Mandatory=$false)]
-        [string]$Gateway = ""
-    )
-    
-    # Simple fingerprinting based on open ports and hostname
-    $deviceType = "Unknown"
-    
-    # Check if it's the gateway
-    if ($IPAddress -eq $Gateway) {
-        return "Router/Gateway"
-    }
-    
-    # Check port patterns
-    if ($OpenPorts -contains 80 -or $OpenPorts -contains 443) {
-        if ($OpenPorts -contains 8080 -or $OpenPorts -contains 8443) {
-            $deviceType = "Web Server"
-        } else {
-            $deviceType = "Web-enabled Device"
-        }
-    }
-    
-    if ($OpenPorts -contains 445 -or $OpenPorts -contains 139) {
-        $deviceType = "Windows Device"
-    }
-    
-    if ($OpenPorts -contains 22) {
-        $deviceType = "Linux/Unix Device"
-    }
-    
-    if ($OpenPorts -contains 3389) {
-        $deviceType = "Windows PC/Server"
-    }
-    
-    if ($OpenPorts -contains 53) {
-        $deviceType = "DNS Server"
-    }
-    
-    if ($OpenPorts -contains 5900) {
-        $deviceType = "VNC Server"
-    }
-    
-    if ($OpenPorts -contains 1433 -or $OpenPorts -contains 3306) {
-        $deviceType = "Database Server"
-    }
-    
-    if ($OpenPorts -contains 25 -or $OpenPorts -contains 465 -or $OpenPorts -contains 587) {
-        $deviceType = "Mail Server"
-    }
-    
-    # Check hostname patterns
-    if ($Hostname -ne "Unknown" -and $Hostname -ne "") {
-        $lowercaseHostname = $Hostname.ToLower()
-        
-        if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark") {
-            $deviceType = "Printer"
-        }
-        
-        if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik") {
-            $deviceType = "Network Device"
-        }
-        
-        if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dahua|hikvision|axis") {
-            $deviceType = "IP Camera"
-        }
-        
-        if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield") {
-            $deviceType = "Media Device"
-        }
-        
-        if ($lowercaseHostname -match "phone|iphone|android") {
-            $deviceType = "Mobile Device"
-        }
-        
-        if ($lowercaseHostname -match "server|dc|domain|ad|exchange|sql") {
-            $deviceType = "Server"
-        }
-    }
-    
-    return $deviceType
-}
-
-function Get-NetworkShares {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$IPAddress
-    )
-    
-    try {
-        $shares = net view $IPAddress 2>$null | Select-String -Pattern "^\\.*" | ForEach-Object { $_.ToString().Trim() }
-        if (!$shares -or $shares.Count -eq 0) {
-            return @()
-        }
-        
-        $shareDetails = @()
-        foreach ($share in $shares) {
-            if ($share -match "\\\\.*\\(.*)") {
-                $shareName = $matches[1]
-                if ($shareName -notmatch "IPC\$|ADMIN\$|.*\$$") {
-                    $shareDetails += [PSCustomObject]@{
-                        Name = $shareName
-                        Path = "\\$IPAddress\$shareName"
-                    }
-                }
-            }
-        }
-        return $shareDetails
-    } catch {
-        return @()
     }
 }
 
@@ -347,6 +229,16 @@ function Scan-Network {
     Write-Host "$StartIP " -NoNewline -ForegroundColor Green
     Write-Host "to " -NoNewline -ForegroundColor White
     Write-Host "$EndIP" -ForegroundColor Green
+    
+    # Check if the range is reasonable (prevent huge ranges)
+    if ($endIPInt - $startIPInt > 10000) {
+        Write-Host "`n[WARNING] Very large IP range detected ($($endIPInt - $startIPInt + 1) addresses)." -ForegroundColor Red
+        Write-Host "This may take a very long time to complete." -ForegroundColor Yellow
+        $confirm = Read-Host "Continue with this range? (Y/N)"
+        if ($confirm -ne "Y" -and $confirm -ne "y") {
+            return @()
+        }
+    }
     
     # Track results
     $results = New-Object System.Collections.ArrayList
@@ -406,7 +298,7 @@ function Scan-Network {
         8080 = "HTTP Proxy"
     }
     
-    # Create scriptblock for runspaces
+    # Create scriptblock for runspaces - This is the main scanning function
     $scriptBlock = {
         param (
             [string]$ipAddress,
@@ -418,9 +310,95 @@ function Scan-Network {
             [string]$gateway
         )
         
-        # Ping the IP to check if it's active
+        # Define the device type function within this scriptblock for scope access
+        function Get-DeviceType {
+            param (
+                [string]$ip,
+                [array]$openPorts,
+                [string]$hostname = "",
+                [string]$gw = ""
+            )
+            
+            # Simple fingerprinting based on open ports and hostname
+            $deviceType = "Unknown"
+            
+            # Check if it's the gateway
+            if ($ip -eq $gw) {
+                return "Router/Gateway"
+            }
+            
+            # Check port patterns
+            if ($openPorts -contains 80 -or $openPorts -contains 443) {
+                if ($openPorts -contains 8080 -or $openPorts -contains 8443) {
+                    $deviceType = "Web Server"
+                } else {
+                    $deviceType = "Web-enabled Device"
+                }
+            }
+            
+            if ($openPorts -contains 445 -or $openPorts -contains 139) {
+                $deviceType = "Windows Device"
+            }
+            
+            if ($openPorts -contains 22) {
+                $deviceType = "Linux/Unix Device"
+            }
+            
+            if ($openPorts -contains 3389) {
+                $deviceType = "Windows PC/Server"
+            }
+            
+            if ($openPorts -contains 53) {
+                $deviceType = "DNS Server"
+            }
+            
+            if ($openPorts -contains 5900) {
+                $deviceType = "VNC Server"
+            }
+            
+            if ($openPorts -contains 1433 -or $openPorts -contains 3306) {
+                $deviceType = "Database Server"
+            }
+            
+            if ($openPorts -contains 25 -or $openPorts -contains 465 -or $openPorts -contains 587) {
+                $deviceType = "Mail Server"
+            }
+            
+            # Check hostname patterns
+            if ($hostname -ne "Unknown" -and $hostname -ne "") {
+                $lowercaseHostname = $hostname.ToLower()
+                
+                if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark") {
+                    $deviceType = "Printer"
+                }
+                
+                if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik") {
+                    $deviceType = "Network Device"
+                }
+                
+                if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dahua|hikvision|axis") {
+                    $deviceType = "IP Camera"
+                }
+                
+                if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield") {
+                    $deviceType = "Media Device"
+                }
+                
+                if ($lowercaseHostname -match "phone|iphone|android") {
+                    $deviceType = "Mobile Device"
+                }
+                
+                if ($lowercaseHostname -match "server|dc|domain|ad|exchange|sql") {
+                    $deviceType = "Server"
+                }
+            }
+            
+            return $deviceType
+        }
+        
+        # Ping the IP to check if it's active (with faster timeout)
         $ping = New-Object System.Net.NetworkInformation.Ping
-        $reply = $ping.Send($ipAddress, $timeout)
+        $reply = $ping.Send($ipAddress, [Math]::Min(300, $timeout))
         
         if ($reply.Status -eq 'Success') {
             # Try to get hostname
@@ -449,7 +427,7 @@ function Scan-Network {
                     $tcpClient = New-Object System.Net.Sockets.TcpClient
                     try {
                         $connectResult = $tcpClient.BeginConnect($ipAddress, $port, $null, $null)
-                        $connected = $connectResult.AsyncWaitHandle.WaitOne($timeout, $false)
+                        $connected = $connectResult.AsyncWaitHandle.WaitOne([Math]::Min(200, $timeout), $false)
                         
                         if ($connected -and $tcpClient.Connected) {
                             $service = if ($serviceDict.ContainsKey($port)) { $serviceDict[$port] } else { "Unknown" }
@@ -464,8 +442,8 @@ function Scan-Network {
                 }
             }
             
-            # Determine device type
-            $deviceType = Get-DeviceType -IPAddress $ipAddress -OpenPorts $openPortNumbers -Hostname $hostname -Gateway $gateway
+            # Determine device type - Use our locally scoped function with proper parameters
+            $deviceType = Get-DeviceType -ip $ipAddress -openPorts $openPortNumbers -hostname $hostname -gw $gateway
             
             # Discover network shares
             $shares = @()
@@ -503,9 +481,6 @@ function Scan-Network {
         return $null
     }
     
-    # Create a scriptblock for getting device type (used inside the main scriptblock)
-    $getDeviceTypeScriptblock = ${function:Get-DeviceType}.ToString()
-    
     # Loop through each IP in the range
     for ($ipInt = $startIPInt; $ipInt -le $endIPInt; $ipInt++) {
         # Convert integer back to IP address
@@ -513,8 +488,15 @@ function Scan-Network {
         [Array]::Reverse($bytes)
         $currentIP = [System.Net.IPAddress]::new($bytes).ToString()
         
-        # Create a PowerShell instance
-        $powershell = [powershell]::Create().AddScript($getDeviceTypeScriptblock).AddScript($scriptBlock).AddParameter("ipAddress", $currentIP).AddParameter("timeout", $TimeoutMilliseconds).AddParameter("scanPorts", $ScanPorts).AddParameter("discoverShares", $DiscoverShares).AddParameter("ports", $commonPorts).AddParameter("serviceDict", $serviceNames).AddParameter("gateway", $Global:NetworkInfo.Gateway)
+        # Create a PowerShell instance with all needed parameters
+        $powershell = [powershell]::Create().AddScript($scriptBlock)
+        $powershell.AddParameter("ipAddress", $currentIP)
+        $powershell.AddParameter("timeout", $TimeoutMilliseconds)
+        $powershell.AddParameter("scanPorts", $ScanPorts)
+        $powershell.AddParameter("discoverShares", $DiscoverShares)
+        $powershell.AddParameter("ports", $commonPorts)
+        $powershell.AddParameter("serviceDict", $serviceNames)
+        $powershell.AddParameter("gateway", $Global:NetworkInfo.Gateway)
         
         # Add the runspace to the PowerShell instance
         $powershell.RunspacePool = $runspacePool
@@ -534,24 +516,30 @@ function Scan-Network {
         # Check for completed runspaces
         foreach ($runspace in $runspaces | Where-Object { -not $_.Completed }) {
             if ($runspace.Handle.IsCompleted) {
-                # Get result
-                $result = $runspace.PowerShell.EndInvoke($runspace.Handle)
-                
-                # Process result if not null
-                if ($result -ne $null) {
-                    [void]$results.Add($result)
-                    $totalActive++
+                try {
+                    # Get result and safely handle any errors
+                    $result = $runspace.PowerShell.EndInvoke($runspace.Handle)
                     
-                    # Display active host found
-                    Write-Host ("[{0}/{1}] " -f $totalScanned, $totalIPs) -NoNewline -ForegroundColor Gray
-                    Write-Host "Found: " -NoNewline -ForegroundColor White
-                    Write-Host "$($result.IPAddress)" -NoNewline -ForegroundColor Green
-                    
-                    if ($result.Hostname -ne "Unknown") {
-                        Write-Host " ($($result.Hostname))" -NoNewline -ForegroundColor Cyan
+                    # Process result if not null
+                    if ($result -ne $null) {
+                        [void]$results.Add($result)
+                        $totalActive++
+                        
+                        # Display active host found
+                        Write-Host ("[{0}/{1}] " -f $totalScanned, $totalIPs) -NoNewline -ForegroundColor Gray
+                        Write-Host "Found: " -NoNewline -ForegroundColor White
+                        Write-Host "$($result.IPAddress)" -NoNewline -ForegroundColor Green
+                        
+                        if ($result.Hostname -ne "Unknown") {
+                            Write-Host " ($($result.Hostname))" -NoNewline -ForegroundColor Cyan
+                        }
+                        
+                        Write-Host " - $($result.DeviceType)" -ForegroundColor Yellow
                     }
-                    
-                    Write-Host " - $($result.DeviceType)" -ForegroundColor Yellow
+                }
+                catch {
+                    Write-Host ("[{0}/{1}] " -f $totalScanned, $totalIPs) -NoNewline -ForegroundColor Gray
+                    Write-Host "Error processing IP $($runspace.IPAddress): $($_.Exception.Message)" -ForegroundColor Red
                 }
                 
                 # Clean up
@@ -695,7 +683,7 @@ function Show-Menu {
         ScanRange = "1"
         StartIP = $NetworkInfo.FirstIP
         EndIP = $NetworkInfo.LastIP
-        Timeout = 1000
+        Timeout = 300
         ThreadCount = 50
         ScanPorts = $true
         DiscoverShares = $true
@@ -742,8 +730,8 @@ function Show-Menu {
             "2" {
                 $scanOptions.Timeout = Read-Host "Enter timeout in milliseconds (100-5000)"
                 if (-not [int]::TryParse($scanOptions.Timeout, [ref]$null) -or $scanOptions.Timeout -lt 100 -or $scanOptions.Timeout -gt 5000) {
-                    $scanOptions.Timeout = 1000
-                    Write-Host "Invalid input. Reset to default (1000ms)" -ForegroundColor Red
+                    $scanOptions.Timeout = 300
+                    Write-Host "Invalid input. Reset to default (300ms)" -ForegroundColor Red
                 }
             }
             "3" {
