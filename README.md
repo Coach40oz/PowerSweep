@@ -181,6 +181,69 @@ This tool is intended for legitimate network administration and security assessm
 - Share Discovery: May not work on non-Windows devices or without proper authentication.
 - "Failed to enumerate" Messages: Usually indicates the host has firewalls blocking the scan; this is normal.
 
+# PowerSweep Lite
+
+PowerSweep Lite is a minimal, lightweight network scanner for quickly discovering devices on your network. It focuses solely on finding active hosts without any of the advanced features of the full PowerSweep tool.
+
+## Features
+
+- **Simplified Network Discovery**: Finds active hosts on your network with minimal overhead
+- **Basic Device Identification**: Identifies common device types based on hostname patterns
+- **Multithreaded Scanning**: Fast parallel processing for quick results
+- **Clean Visual Interface**: Colorful, easy-to-read console output
+- **Direct Result Display**: Shows results in a simple table format
+
+## Requirements
+
+- Windows operating system
+- PowerShell 5.1 or higher
+- Administrator privileges recommended (for MAC address detection)
+
+## Installation & Usage
+
+1. Download the PowerSweep-Lite.ps1 file
+2. Run PowerShell as Administrator (recommended)
+3. Navigate to the directory containing the script
+4. Execute: `.\PowerSweep-Lite.ps1`
+
+## Menu Options
+
+PowerSweep Lite has a simple menu with just three options:
+
+| Option | Description |
+|--------|-------------|
+| 1. IP Range | Set the range of IP addresses to scan |
+| 2. Timeout | Adjust connection timeout (100-5000ms) |
+| 3. Thread Count | Set number of concurrent threads (1-100) |
+
+Press S to start the scan, or Q to quit.
+
+## Output Information
+
+The scan results display the following information:
+- IP Address
+- Hostname (when available)
+- Device Type
+- Response Time (ping latency)
+- MAC Address (requires admin privileges)
+
+## Key Differences from PowerSweep Full
+
+- **Focused Functionality**: Only performs basic network discovery
+- **No Port Scanning**: Doesn't scan for open ports
+- **No Share Discovery**: Doesn't attempt to discover network shares
+- **No Vulnerability Assessment**: No security checks performed
+- **No Export Functionality**: Results are displayed directly in the console
+- **Simplified Menu**: Only includes essential options
+
+## License
+
+This tool is released under the GNU General Public License v3.0.
+
+## Author
+
+- **Ulises Paiz** - Initial work and development
+
 ## Author
 
 - Ulises Paiz - Initial work and development
