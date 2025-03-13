@@ -5,10 +5,10 @@
 .DESCRIPTION
     A comprehensive network scanning tool that discovers active hosts,
     performs port scanning, identifies services, discovers shares,
-    and attempts to determine device types.
+    attempts to determine device types, and performs basic vulnerability assessment.
 .NOTES
     Author: Ulises Paiz
-    Version: 1.2
+    Version: 3.4
 #>
 
 function Get-LocalNetworkInfo {
@@ -319,78 +319,170 @@ function Scan-Network {
                 [string]$gw = ""
             )
             
-            # Simple fingerprinting based on open ports and hostname
+            # Initialize with Unknown
             $deviceType = "Unknown"
+            $osType = "Unknown"
+            $deviceRole = "Unknown"
             
             # Check if it's the gateway
             if ($ip -eq $gw) {
                 return "Router/Gateway"
             }
             
-            # Check port patterns
-            if ($openPorts -contains 80 -or $openPorts -contains 443) {
-                if ($openPorts -contains 8080 -or $openPorts -contains 8443) {
-                    $deviceType = "Web Server"
-                } else {
-                    $deviceType = "Web-enabled Device"
+            # Advanced port pattern recognition
+            $portSignatures = @{
+                # Web services
+                "WebServer" = @(80, 443, 8080, 8443)
+                "ProxyServer" = @(3128, 8080, 8118)
+                
+                # File sharing
+                "FileServer" = @(139, 445, 2049)
+                
+                # Email services
+                "MailServer" = @(25, 110, 143, 465, 587, 993, 995)
+                
+                # Database
+                "DatabaseServer" = @(1433, 1521, 3306, 5432)
+                
+                # Directory services
+                "DirectoryServer" = @(389, 636, 88)
+                
+                # Remote access
+                "RemoteAccess" = @(22, 23, 3389, 5900)
+                
+                # Media servers
+                "MediaServer" = @(1900, 8096, 32469)
+                
+                # IoT and smart home
+                "IoT" = @(1883, 8883, 5683)
+                
+                # VoIP
+                "VoIP" = @(5060, 5061)
+                
+                # Print services
+                "PrintServer" = @(515, 631, 9100)
+                
+                # Monitoring
+                "MonitoringServer" = @(161, 162, 199)
+            }
+            
+            # OS detection by port patterns
+            $osSignatures = @{
+                "Windows" = @(135, 139, 445, 3389, 5985)
+                "Linux" = @(22, 111, 2049)
+                "macOS" = @(548, 5000, 7000)
+                "Network" = @(22, 23, 161, 162, 443, 830)
+            }
+            
+            # Identify device role based on open ports
+            foreach ($signature in $portSignatures.GetEnumerator()) {
+                $matchCount = 0
+                foreach ($port in $signature.Value) {
+                    if ($openPorts -contains $port) {
+                        $matchCount++
+                    }
+                }
+                
+                # If we have at least 2 matching ports or a significant percentage
+                if (($matchCount -ge 2) -or 
+                    ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($matchCount / $signature.Value.Count) -ge 0.3)) {
+                    $deviceRole = $signature.Key
+                    break
                 }
             }
             
-            if ($openPorts -contains 445 -or $openPorts -contains 139) {
-                $deviceType = "Windows Device"
+            # Identify OS based on open ports
+            foreach ($signature in $osSignatures.GetEnumerator()) {
+                $matchCount = 0
+                foreach ($port in $signature.Value) {
+                    if ($openPorts -contains $port) {
+                        $matchCount++
+                    }
+                }
+                
+                # If we have at least 2 matching ports or a significant percentage
+                if (($matchCount -ge 2) -or 
+                    ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($matchCount / $signature.Value.Count) -ge 0.3)) {
+                    $osType = $signature.Key
+                    break
+                }
             }
             
-            if ($openPorts -contains 22) {
-                $deviceType = "Linux/Unix Device"
+            # Special case checks
+            if ($openPorts -contains 80 -and $openPorts -contains 443) {
+                if ($openPorts -contains 8080 -or $openPorts -contains 8443) {
+                    $deviceRole = "WebServer"
+                } else {
+                    $deviceRole = "Web-enabled Device"
+                }
             }
             
-            if ($openPorts -contains 3389) {
-                $deviceType = "Windows PC/Server"
-            }
-            
-            if ($openPorts -contains 53) {
-                $deviceType = "DNS Server"
-            }
-            
-            if ($openPorts -contains 5900) {
-                $deviceType = "VNC Server"
-            }
-            
-            if ($openPorts -contains 1433 -or $openPorts -contains 3306) {
-                $deviceType = "Database Server"
-            }
-            
-            if ($openPorts -contains 25 -or $openPorts -contains 465 -or $openPorts -contains 587) {
-                $deviceType = "Mail Server"
-            }
-            
-            # Check hostname patterns
+            # Enhanced hostname analysis
             if ($hostname -ne "Unknown" -and $hostname -ne "") {
                 $lowercaseHostname = $hostname.ToLower()
                 
-                if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark") {
-                    $deviceType = "Printer"
+                # Router/Network devices
+                if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik|cisco|juniper|tplink|dlink|netgear|asus") {
+                    $deviceRole = "NetworkDevice"
+                    $osType = "Network"
                 }
                 
-                if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik") {
-                    $deviceType = "Network Device"
+                # Printers
+                if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark|zebra|dymo|print|mfp") {
+                    $deviceRole = "Printer"
+                    $osType = "Embedded"
                 }
                 
-                if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dahua|hikvision|axis") {
-                    $deviceType = "IP Camera"
+                # Cameras/Security
+                if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dvr|dahua|hikvision|axis|bosch|cctv|surveillan|security") {
+                    $deviceRole = "Camera"
+                    $osType = "Embedded"
                 }
                 
-                if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield") {
-                    $deviceType = "Media Device"
+                # Media devices
+                if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield|media|smart-tv|smarttv|samsung|lg|sony|philips|hisense") {
+                    $deviceRole = "MediaDevice"
+                    $osType = "Embedded"
                 }
                 
-                if ($lowercaseHostname -match "phone|iphone|android") {
-                    $deviceType = "Mobile Device"
+                # Mobile devices
+                if ($lowercaseHostname -match "phone|iphone|android|ipad|tablet|mobile|pixel|galaxy|oneplus|xiaomi") {
+                    $deviceRole = "MobileDevice"
+                    if ($lowercaseHostname -match "iphone|ipad|ipod") {
+                        $osType = "iOS"
+                    }
+                    elseif ($lowercaseHostname -match "android|pixel|galaxy|oneplus|xiaomi") {
+                        $osType = "Android"
+                    }
                 }
                 
-                if ($lowercaseHostname -match "server|dc|domain|ad|exchange|sql") {
-                    $deviceType = "Server"
+                # Servers
+                if ($lowercaseHostname -match "server|srv|dc|domain|ad|exchange|sql|web|mail|dns|dhcp|ftp|app|backup|db") {
+                    $deviceRole = "Server"
+                    if ($lowercaseHostname -match "win") {
+                        $osType = "Windows"
+                    }
+                    elseif ($lowercaseHostname -match "lnx|linux|ubuntu|debian|centos|rhel|fedora") {
+                        $osType = "Linux"
+                    }
                 }
+                
+                # IoT devices
+                if ($lowercaseHostname -match "iot|smart|nest|hue|echo|alexa|google-home|ring|blink|wyze|eufy") {
+                    $deviceRole = "IoT"
+                    $osType = "Embedded"
+                }
+            }
+            
+            # Combine OS and role for detailed device type
+            if ($osType -ne "Unknown" -and $deviceRole -ne "Unknown") {
+                $deviceType = "$osType $deviceRole"
+            }
+            elseif ($osType -ne "Unknown") {
+                $deviceType = $osType
+            }
+            elseif ($deviceRole -ne "Unknown") {
+                $deviceType = $deviceRole
             }
             
             return $deviceType
@@ -525,7 +617,7 @@ function Scan-Network {
                         [void]$results.Add($result)
                         $totalActive++
                         
-                        # Display active host found
+                        # Display active host found with colorful output and better formatting
                         Write-Host ("[{0}/{1}] " -f $totalScanned, $totalIPs) -NoNewline -ForegroundColor Gray
                         Write-Host "Found: " -NoNewline -ForegroundColor White
                         Write-Host "$($result.IPAddress)" -NoNewline -ForegroundColor Green
@@ -534,7 +626,19 @@ function Scan-Network {
                             Write-Host " ($($result.Hostname))" -NoNewline -ForegroundColor Cyan
                         }
                         
-                        Write-Host " - $($result.DeviceType)" -ForegroundColor Yellow
+                        Write-Host " - " -NoNewline
+                        
+                        # Color-code device types
+                        switch -Regex ($result.DeviceType) {
+                            "Server" { Write-Host "$($result.DeviceType)" -ForegroundColor Red }
+                            "Router|Gateway|Network" { Write-Host "$($result.DeviceType)" -ForegroundColor Magenta }
+                            "Windows" { Write-Host "$($result.DeviceType)" -ForegroundColor Blue }
+                            "Linux|Unix" { Write-Host "$($result.DeviceType)" -ForegroundColor Yellow }
+                            "Web" { Write-Host "$($result.DeviceType)" -ForegroundColor Cyan }
+                            "Printer" { Write-Host "$($result.DeviceType)" -ForegroundColor DarkYellow }
+                            "Camera" { Write-Host "$($result.DeviceType)" -ForegroundColor DarkCyan }
+                            default { Write-Host "$($result.DeviceType)" -ForegroundColor White }
+                        }
                     }
                 }
                 catch {
@@ -551,7 +655,14 @@ function Scan-Network {
         
         # Update progress
         $percentComplete = [Math]::Min(100, [Math]::Max(0, [int](($totalScanned / $totalIPs) * 100)))
-        Write-Progress -Activity "Scanning Network" -Status "Progress: $totalScanned of $totalIPs IPs scanned" -PercentComplete $percentComplete
+        $progressColor = switch ($percentComplete) {
+            {$_ -lt 25} { "Red" }
+            {$_ -lt 50} { "Yellow" }
+            {$_ -lt 75} { "Cyan" }
+            default { "Green" }
+        }
+        
+        Write-Progress -Activity "Scanning Network" -Status "Progress: $totalScanned of $totalIPs IPs scanned ($percentComplete%)" -PercentComplete $percentComplete
         
         # Sleep briefly to reduce CPU usage
         Start-Sleep -Milliseconds 100
@@ -582,17 +693,212 @@ function Scan-Network {
     # If export option was selected, save results
     if ($ExportResults) {
         try {
-            $sortedResults = $results | Sort-Object { [System.Version]::new($_.IPAddress) }
+            # Ensure the directory exists
+            $directory = Split-Path -Path $ExportPath -Parent
+            if (-not (Test-Path -Path $directory)) {
+                New-Item -Path $directory -ItemType Directory -Force | Out-Null
+                Write-Host "Created directory: $directory" -ForegroundColor Yellow
+            }
+            
+            # Sort by IP address numerically
+            $sortedResults = $results | Sort-Object { 
+                $octets = $_.IPAddress -split '\.'
+                [int]$octets[0]*16777216 + [int]$octets[1]*65536 + [int]$octets[2]*256 + [int]$octets[3]
+            }
             $sortedResults | Export-Csv -Path $ExportPath -NoTypeInformation
             Write-Host "Results exported to: " -NoNewline -ForegroundColor White
             Write-Host "$ExportPath" -ForegroundColor Green
         } catch {
             Write-Host "Error exporting results: $($_.Exception.Message)" -ForegroundColor Red
+            
+            # Suggest an alternative location
+            $alternativePath = "$env:USERPROFILE\Documents\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+            $tryAlternative = Read-Host "Would you like to try saving to $alternativePath instead? (Y/N)"
+            if ($tryAlternative -eq "Y" -or $tryAlternative -eq "y") {
+                try {
+                    $sortedResults | Export-Csv -Path $alternativePath -NoTypeInformation
+                    Write-Host "Results exported to: " -NoNewline -ForegroundColor White
+                    Write-Host "$alternativePath" -ForegroundColor Green
+                } catch {
+                    Write-Host "Error exporting to alternative location: $($_.Exception.Message)" -ForegroundColor Red
+                }
+            }
         }
     }
     
-    # Return sorted results
-    return $results | Sort-Object { [System.Version]::new($_.IPAddress) }
+    # Return sorted results - this is the fix for IP address ordering
+    return $results | Sort-Object { 
+        $octets = $_.IPAddress -split '\.'
+        [int]$octets[0]*16777216 + [int]$octets[1]*65536 + [int]$octets[2]*256 + [int]$octets[3]
+    }
+}
+
+function Scan-Vulnerabilities {
+    param (
+        [Parameter(Mandatory=$true)]
+        [array]$Results
+    )
+    
+    Write-Host "`n═════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "          VULNERABILITY ASSESSMENT           " -ForegroundColor Yellow
+    Write-Host "═════════════════════════════════════════════`n" -ForegroundColor Cyan
+    
+    $vulnerabilities = New-Object System.Collections.ArrayList
+    
+    # FIXED: Changed $host to $hostItem to avoid conflict with reserved variable
+    foreach ($hostItem in $Results) {
+        $hostVulns = @()
+        
+        # Parse open ports
+        $openPortsList = @()
+        if ($hostItem.OpenPorts -ne "") {
+            $hostItem.OpenPorts -split ", " | ForEach-Object {
+                if ($_ -match "(\d+) \((.+)\)") {
+                    $openPortsList += [int]$matches[1]
+                }
+            }
+        }
+        
+        # Check for insecure protocols
+        if ($openPortsList -contains 21) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "Medium"
+                Type = "Insecure Protocol"
+                Description = "FTP service detected (port 21). FTP transmits data in cleartext."
+                Recommendation = "Replace with SFTP (port 22) or FTPS (port 990)"
+            }
+        }
+        
+        if ($openPortsList -contains 23) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "High"
+                Type = "Insecure Protocol"
+                Description = "Telnet service detected (port 23). Telnet transmits credentials in cleartext."
+                Recommendation = "Replace with SSH (port 22)"
+            }
+        }
+        
+        if ($openPortsList -contains 80 -and -not ($openPortsList -contains 443)) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "Medium"
+                Type = "Insecure Protocol"
+                Description = "HTTP without HTTPS detected. Data transmitted in cleartext."
+                Recommendation = "Implement HTTPS with valid certificates"
+            }
+        }
+        
+        # Check for risky services
+        if ($openPortsList -contains 3389) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "Medium"
+                Type = "Remote Access"
+                Description = "RDP service exposed (port 3389)."
+                Recommendation = "Restrict RDP access with firewall rules, use strong passwords and NLA"
+            }
+        }
+        
+        if ($openPortsList -contains 5900) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "Medium"
+                Type = "Remote Access"
+                Description = "VNC service exposed (port 5900)."
+                Recommendation = "Use SSH tunneling, strong passwords, and access controls for VNC"
+            }
+        }
+        
+        # SMB checks
+        if ($openPortsList -contains 445) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "Medium"
+                Type = "File Sharing"
+                Description = "SMB service exposed (port 445)."
+                Recommendation = "Restrict SMB access with firewall rules, disable SMBv1"
+            }
+            
+            # Check for open shares
+            if ($hostItem.Shares -ne "") {
+                $hostVulns += [PSCustomObject]@{
+                    Severity = "High"
+                    Type = "Excessive Exposure"
+                    Description = "Open network shares detected: $($hostItem.Shares)"
+                    Recommendation = "Review and secure shared folders with appropriate permissions"
+                }
+            }
+        }
+        
+        # Database exposure checks
+        if ($openPortsList -contains 1433) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "High"
+                Type = "Database Exposure"
+                Description = "MS SQL Server exposed (port 1433)."
+                Recommendation = "Restrict database access with firewall rules, use strong authentication"
+            }
+        }
+        
+        if ($openPortsList -contains 3306) {
+            $hostVulns += [PSCustomObject]@{
+                Severity = "High"
+                Type = "Database Exposure"
+                Description = "MySQL/MariaDB exposed (port 3306)."
+                Recommendation = "Restrict database access with firewall rules, use strong authentication"
+            }
+        }
+        
+        # Only add hosts with vulnerabilities
+        if ($hostVulns.Count -gt 0) {
+            [void]$vulnerabilities.Add([PSCustomObject]@{
+                IPAddress = $hostItem.IPAddress
+                Hostname = $hostItem.Hostname
+                DeviceType = $hostItem.DeviceType
+                Vulnerabilities = $hostVulns
+            })
+        }
+    }
+    
+    # Display vulnerability summary
+    if ($vulnerabilities.Count -gt 0) {
+        Write-Host "Found potential vulnerabilities on " -NoNewline -ForegroundColor White
+        Write-Host "$($vulnerabilities.Count)" -NoNewline -ForegroundColor Red
+        Write-Host " hosts:`n" -ForegroundColor White
+        
+        foreach ($vulnHost in $vulnerabilities) {
+            Write-Host "Host: " -NoNewline -ForegroundColor White
+            Write-Host "$($vulnHost.IPAddress)" -NoNewline -ForegroundColor Green
+            
+            if ($vulnHost.Hostname -ne "Unknown") {
+                Write-Host " ($($vulnHost.Hostname))" -NoNewline -ForegroundColor Cyan
+            }
+            
+            Write-Host " - $($vulnHost.DeviceType)" -ForegroundColor Yellow
+            
+            foreach ($vuln in $vulnHost.Vulnerabilities) {
+                # Set color based on severity
+                $severityColor = switch ($vuln.Severity) {
+                    "High" { "Red" }
+                    "Medium" { "Yellow" }
+                    "Low" { "Cyan" }
+                    default { "White" }
+                }
+                
+                Write-Host "  [" -NoNewline -ForegroundColor White
+                Write-Host "$($vuln.Severity)" -NoNewline -ForegroundColor $severityColor
+                Write-Host "] " -NoNewline -ForegroundColor White
+                Write-Host "$($vuln.Type): " -NoNewline -ForegroundColor Magenta
+                Write-Host "$($vuln.Description)" -ForegroundColor White
+                Write-Host "     → Recommendation: " -NoNewline -ForegroundColor DarkCyan
+                Write-Host "$($vuln.Recommendation)" -ForegroundColor White
+            }
+            Write-Host ""
+        }
+    } else {
+        Write-Host "No obvious vulnerabilities detected in the scanned hosts." -ForegroundColor Green
+        Write-Host "Note: This is a basic assessment and does not replace a professional security audit." -ForegroundColor Yellow
+    }
+    
+    Write-Host "`n═════════════════════════════════════════════`n" -ForegroundColor Cyan
+    
+    return $vulnerabilities
 }
 
 function Show-ResultSummary {
@@ -610,7 +916,19 @@ function Show-ResultSummary {
     
     Write-Host "Device Types:" -ForegroundColor Magenta
     foreach ($type in $deviceTypes) {
-        Write-Host "  $($type.Name): " -NoNewline -ForegroundColor White
+        # Color-code device types
+        $color = switch -Regex ($type.Name) {
+            "Server" { "Red" }
+            "Router|Gateway|Network" { "Magenta" }
+            "Windows" { "Blue" }
+            "Linux|Unix" { "Yellow" }
+            "Web" { "Cyan" }
+            "Printer" { "DarkYellow" }
+            "Camera" { "DarkCyan" }
+            default { "White" }
+        }
+        
+        Write-Host "  $($type.Name): " -NoNewline -ForegroundColor $color
         Write-Host "$($type.Count)" -ForegroundColor Green
     }
     
@@ -630,32 +948,42 @@ function Show-ResultSummary {
         }
     }
     
+    # Correctly count and group the ports found
     $portSummary = $allPorts | Group-Object -Property Service | Sort-Object -Property Count -Descending
     
     if ($portSummary.Count -gt 0) {
         Write-Host "`nCommon Services:" -ForegroundColor Magenta
         foreach ($service in $portSummary | Select-Object -First 10) {
-            Write-Host "  $($service.Name): " -NoNewline -ForegroundColor White
+            # Color services based on security implications
+            $color = switch -Regex ($service.Name) {
+                "SSH|HTTPS|SFTP" { "Green" }
+                "HTTP|FTP|Telnet" { "Yellow" }
+                "NetBIOS|SMB|RPC" { "Cyan" }
+                "SQL|MySQL" { "Magenta" }
+                "RDP|VNC" { "Red" }
+                default { "White" }
+            }
+            
+            Write-Host "  $($service.Name): " -NoNewline -ForegroundColor $color
             Write-Host "$($service.Count)" -ForegroundColor Green
         }
     }
     
     # Shares summary
-    $hostsWithShares = $Results | Where-Object { $_.Shares -ne "" }
+    $hostsWithShares = $Results | Where-Object { $_.Shares -ne "" -and $_.Shares -ne $null }
     if ($hostsWithShares.Count -gt 0) {
         Write-Host "`nHosts with Shares: " -NoNewline -ForegroundColor Magenta
         Write-Host "$($hostsWithShares.Count)" -ForegroundColor Green
-    }
-    
-    Write-Host "`nTop 10 Fastest Responding Hosts:" -ForegroundColor Magenta
-    $fastestHosts = $Results | Sort-Object { [int]($_.ResponseTime -replace ' ms', '') } | Select-Object -First 10
-    foreach ($host in $fastestHosts) {
-        Write-Host "  $($host.IPAddress) " -NoNewline -ForegroundColor Green
-        if ($host.Hostname -ne "Unknown") {
-            Write-Host "($($host.Hostname)) " -NoNewline -ForegroundColor Cyan
+        
+        # Show the hosts with shares for clarity
+        foreach ($shareHost in $hostsWithShares) {
+            Write-Host "  $($shareHost.IPAddress) " -NoNewline -ForegroundColor Green
+            if ($shareHost.Hostname -ne "Unknown") {
+                Write-Host "($($shareHost.Hostname)) " -NoNewline -ForegroundColor Cyan
+            }
+            Write-Host "- " -NoNewline
+            Write-Host "$($shareHost.Shares)" -ForegroundColor Yellow
         }
-        Write-Host "- " -NoNewline
-        Write-Host "$($host.ResponseTime)" -ForegroundColor Yellow
     }
     
     Write-Host "`n═════════════════════════════════════════════`n" -ForegroundColor Cyan
@@ -672,6 +1000,7 @@ function Show-Menu {
 ╔═══════════════════════════════════════════════════════════════════╗
 ║                                                                   ║
 ║                         POWERSWEEP                                ║
+║                   Network Discovery Tool                          ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 
@@ -687,6 +1016,7 @@ function Show-Menu {
         ThreadCount = 50
         ScanPorts = $true
         DiscoverShares = $true
+        VulnerabilityScan = $true
         ExportResults = $false
         ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
     }
@@ -694,28 +1024,85 @@ function Show-Menu {
     $menuActive = $true
     
     while ($menuActive) {
-        Write-Host "Current Scan Settings:" -ForegroundColor Yellow
-        Write-Host "  1. IP Range: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.StartIP) to $($scanOptions.EndIP)" -ForegroundColor Green
-        Write-Host "  2. Timeout: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.Timeout) ms" -ForegroundColor Green
-        Write-Host "  3. Thread Count: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.ThreadCount)" -ForegroundColor Green
-        Write-Host "  4. Scan Ports: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.ScanPorts)" -ForegroundColor Green
-        Write-Host "  5. Discover Shares: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.DiscoverShares)" -ForegroundColor Green
-        Write-Host "  6. Export Results: " -NoNewline -ForegroundColor White
-        Write-Host "$($scanOptions.ExportResults)" -ForegroundColor Green
+        # Create a more visually appealing settings display
+        Write-Host "`n┌─────────────────────── " -NoNewline -ForegroundColor Cyan
+        Write-Host "CURRENT SETTINGS" -NoNewline -ForegroundColor Yellow
+        Write-Host " ───────────────────────┐" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "1. IP Range     : " -NoNewline -ForegroundColor White
+        Write-Host ("{0} to {1}" -f $scanOptions.StartIP, $scanOptions.EndIP) -NoNewline -ForegroundColor Green
+        Write-Host " ".PadRight(48 - ($scanOptions.StartIP.Length + $scanOptions.EndIP.Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "2. Timeout      : " -NoNewline -ForegroundColor White
+        Write-Host "$($scanOptions.Timeout) ms" -NoNewline -ForegroundColor Green
+        Write-Host " ".PadRight(48 - ($scanOptions.Timeout.ToString().Length + 3)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "3. Thread Count : " -NoNewline -ForegroundColor White
+        Write-Host "$($scanOptions.ThreadCount)" -NoNewline -ForegroundColor Green
+        Write-Host " ".PadRight(48 - ($scanOptions.ThreadCount.ToString().Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "4. Scan Ports   : " -NoNewline -ForegroundColor White
+        $portColor = if ($scanOptions.ScanPorts) { "Green" } else { "Red" }
+        Write-Host "$($scanOptions.ScanPorts)" -NoNewline -ForegroundColor $portColor
+        Write-Host " ".PadRight(48 - ($scanOptions.ScanPorts.ToString().Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "5. Find Shares  : " -NoNewline -ForegroundColor White
+        $shareColor = if ($scanOptions.DiscoverShares) { "Green" } else { "Red" }
+        Write-Host "$($scanOptions.DiscoverShares)" -NoNewline -ForegroundColor $shareColor
+        Write-Host " ".PadRight(48 - ($scanOptions.DiscoverShares.ToString().Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "6. Vuln Scan    : " -NoNewline -ForegroundColor White
+        $vulnColor = if ($scanOptions.VulnerabilityScan) { "Green" } else { "Red" }
+        Write-Host "$($scanOptions.VulnerabilityScan)" -NoNewline -ForegroundColor $vulnColor
+        Write-Host " ".PadRight(48 - ($scanOptions.VulnerabilityScan.ToString().Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "7. Export       : " -NoNewline -ForegroundColor White
+        $exportColor = if ($scanOptions.ExportResults) { "Green" } else { "Red" }
+        Write-Host "$($scanOptions.ExportResults)" -NoNewline -ForegroundColor $exportColor
+        Write-Host " ".PadRight(48 - ($scanOptions.ExportResults.ToString().Length)) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
         
         if ($scanOptions.ExportResults) {
-            Write-Host "  7. Export Path: " -NoNewline -ForegroundColor White
-            Write-Host "$($scanOptions.ExportPath)" -ForegroundColor Green
+            Write-Host "│ " -NoNewline -ForegroundColor Cyan
+            Write-Host "8. Export Path  : " -NoNewline -ForegroundColor White
+            # Shorten path display if it's too long
+            $pathDisplay = $scanOptions.ExportPath
+            if ($pathDisplay.Length > 45) {
+                $pathDisplay = "..." + $pathDisplay.Substring($pathDisplay.Length - 42)
+            }
+            Write-Host "$pathDisplay" -NoNewline -ForegroundColor Green
+            Write-Host " ".PadRight(48 - $pathDisplay.Length) -NoNewline
+            Write-Host "│" -ForegroundColor Cyan
         }
         
-        Write-Host "`nActions:" -ForegroundColor Yellow
-        Write-Host "  S. Start Scan" -ForegroundColor Green
-        Write-Host "  Q. Quit" -ForegroundColor Red
+        Write-Host "└──────────────────────────────────────────────────────────────┘" -ForegroundColor Cyan
+        
+        # Actions menu
+        Write-Host "`n┌─────────────────────── " -NoNewline -ForegroundColor Cyan
+        Write-Host "ACTIONS" -NoNewline -ForegroundColor Yellow
+        Write-Host " ──────────────────────────────┐" -ForegroundColor Cyan
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "S. Start Scan" -NoNewline -ForegroundColor Green
+        Write-Host " ".PadRight(53 - 11) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        Write-Host "│ " -NoNewline -ForegroundColor Cyan
+        Write-Host "Q. Quit" -NoNewline -ForegroundColor Red
+        Write-Host " ".PadRight(53 - 6) -NoNewline
+        Write-Host "│" -ForegroundColor Cyan
+        Write-Host "└──────────────────────────────────────────────────────────────┘" -ForegroundColor Cyan
         
         $choice = Read-Host "`nEnter your choice"
         
@@ -748,9 +1135,12 @@ function Show-Menu {
                 $scanOptions.DiscoverShares = -not $scanOptions.DiscoverShares
             }
             "6" {
-                $scanOptions.ExportResults = -not $scanOptions.ExportResults
+                $scanOptions.VulnerabilityScan = -not $scanOptions.VulnerabilityScan
             }
             "7" {
+                $scanOptions.ExportResults = -not $scanOptions.ExportResults
+            }
+            "8" {
                 if ($scanOptions.ExportResults) {
                     $scanOptions.ExportPath = Read-Host "Enter export path"
                 }
@@ -764,7 +1154,69 @@ function Show-Menu {
                     
                     $viewDetails = Read-Host "View detailed results? (Y/N)"
                     if ($viewDetails -eq "Y" -or $viewDetails -eq "y") {
-                        $results | Format-Table -Property IPAddress, Hostname, DeviceType, MAC, ResponseTime, OpenPorts, Shares -AutoSize
+                        # More compact table format
+                        $results | Format-Table -Property @{
+                            Label = "IP"; Expression = {$_.IPAddress}; Width = 15
+                        }, @{
+                            Label = "Hostname"; Expression = {$_.Hostname}; Width = 25; Alignment = "Left"
+                        }, @{
+                            Label = "Type"; Expression = {$_.DeviceType}; Width = 15
+                        }, @{
+                            Label = "Response"; Expression = {$_.ResponseTime}; Width = 10
+                        }, @{
+                            Label = "Open Ports"; Expression = {$_.OpenPorts}; Width = 30
+                        } -AutoSize -Wrap
+                    }
+                    
+                    # Run vulnerability assessment if enabled
+                    if ($scanOptions.VulnerabilityScan) {
+                        $vulnerabilities = Scan-Vulnerabilities -Results $results
+                    }
+                    
+                    # Add CSV export prompt if not already exporting
+                    if (-not $scanOptions.ExportResults) {
+                        $exportNow = Read-Host "Would you like to export these results to a CSV file? (Y/N)"
+                        if ($exportNow -eq "Y" -or $exportNow -eq "y") {
+                            $defaultPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+                            $exportPath = Read-Host "Enter export path or press Enter to use default [$defaultPath]"
+                            
+                            if ([string]::IsNullOrWhiteSpace($exportPath)) {
+                                $exportPath = $defaultPath
+                            }
+                            
+                            try {
+                                # Ensure the directory exists
+                                $directory = Split-Path -Path $exportPath -Parent
+                                if (-not (Test-Path -Path $directory)) {
+                                    New-Item -Path $directory -ItemType Directory -Force | Out-Null
+                                    Write-Host "Created directory: $directory" -ForegroundColor Yellow
+                                }
+                                
+                                # Sort results by IP address numerically
+                                $sortedResults = $results | Sort-Object { 
+                                    $octets = $_.IPAddress -split '\.'
+                                    [int]$octets[0]*16777216 + [int]$octets[1]*65536 + [int]$octets[2]*256 + [int]$octets[3]
+                                }
+                                $sortedResults | Export-Csv -Path $exportPath -NoTypeInformation
+                                Write-Host "Results exported to: " -NoNewline -ForegroundColor White
+                                Write-Host "$exportPath" -ForegroundColor Green
+                            } catch {
+                                Write-Host "Error exporting results: $($_.Exception.Message)" -ForegroundColor Red
+                                
+                                # Suggest an alternative location
+                                $alternativePath = "$env:USERPROFILE\Documents\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+                                $tryAlternative = Read-Host "Would you like to try saving to $alternativePath instead? (Y/N)"
+                                if ($tryAlternative -eq "Y" -or $tryAlternative -eq "y") {
+                                    try {
+                                        $sortedResults | Export-Csv -Path $alternativePath -NoTypeInformation
+                                        Write-Host "Results exported to: " -NoNewline -ForegroundColor White
+                                        Write-Host "$alternativePath" -ForegroundColor Green
+                                    } catch {
+                                        Write-Host "Error exporting to alternative location: $($_.Exception.Message)" -ForegroundColor Red
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     Write-Host "No active hosts found in the specified range." -ForegroundColor Yellow
@@ -788,19 +1240,22 @@ function Show-Menu {
 # Main script execution
 $banner = @"
                                                                                 
-    ██████╗  ██████╗ ██╗    ██╗███████╗██████╗ ███████╗██╗    ██╗███████╗███████╗██████╗  
-    ██╔══██╗██╔═══██╗██║    ██║██╔════╝██╔══██╗██╔════╝██║    ██║██╔════╝██╔════╝██╔══██╗ 
-    ██████╔╝██║   ██║██║ █╗ ██║█████╗  ██████╔╝███████╗██║ █╗ ██║█████╗  █████╗  ██████╔╝ 
-    ██╔═══╝ ██║   ██║██║███╗██║██╔══╝  ██╔══██╗╚════██║██║███╗██║██╔══╝  ██╔══╝  ██╔═══╝  
-    ██║     ╚██████╔╝╚███╔███╔╝███████╗██║  ██║███████║╚███╔███╔╝███████╗███████╗██║      
-    ╚═╝      ╚═════╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝ ╚══════╝╚══════╝╚═╝      
-                                                                                            
-           Advanced PowerShell Network Discovery Tool by Ulises Paiz
+ ██████╗  ██████╗ ██╗    ██╗███████╗██████╗ ███████╗██╗    ██╗███████╗███████╗██████╗  
+ ██╔══██╗██╔═══██╗██║    ██║██╔════╝██╔══██╗██╔════╝██║    ██║██╔════╝██╔════╝██╔══██╗ 
+ ██████╔╝██║   ██║██║ █╗ ██║█████╗  ██████╔╝███████╗██║ █╗ ██║█████╗  █████╗  ██████╔╝ 
+ ██╔═══╝ ██║   ██║██║███╗██║██╔══╝  ██╔══██╗╚════██║██║███╗██║██╔══╝  ██╔══╝  ██╔═══╝  
+ ██║     ╚██████╔╝╚███╔███╔╝███████╗██║  ██║███████║╚███╔███╔╝███████╗███████╗██║      
+ ╚═╝      ╚═════╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝ ╚══════╝╚══════╝╚═╝      
+                                                                                         
+        Advanced PowerShell Network Discovery Tool by Ulises Paiz
 "@
 
 Clear-Host
 Write-Host $banner -ForegroundColor Cyan
-Write-Host "═════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+
+# Generate a fancy ASCII art separator
+$separator = "═".PadRight(75, "═")
+Write-Host $separator -ForegroundColor Cyan
 
 # Check if running as administrator
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -823,4 +1278,9 @@ $Global:NetworkInfo = Get-LocalNetworkInfo
 # Show menu and start scanning
 Show-Menu -NetworkInfo $Global:NetworkInfo
 
-Write-Host "`nThank you for using PowerSweep!" -ForegroundColor Cyan
+Write-Host "`n" -NoNewline
+Write-Host "╔═════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║                                                                     ║" -ForegroundColor Cyan
+Write-Host "║                Thank you for using PowerSweep!                      ║" -ForegroundColor Cyan
+Write-Host "║                                                                     ║" -ForegroundColor Cyan
+Write-Host "╚═════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
