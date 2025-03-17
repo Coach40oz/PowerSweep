@@ -28,24 +28,45 @@ PowerSweep is an advanced PowerShell network discovery and security assessment t
 - PowerShell 5.1 or higher
 - Administrator privileges (for full functionality)
 
-## 💻 Installation
+## 💻 Installation & Execution
+
+### Direct Execution from GitHub
+
+You can run PowerSweep directly from GitHub with these commands:
+
+#### PowerSweep (Full Version)
+```powershell
+# Launch PowerShell as Administrator and run:
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
+```
+
+#### PowerSweep Lite (Lightweight Version)
+```powershell
+# Launch PowerShell as Administrator and run:
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/PowerSweeplite.ps1 | iex
+```
+
+### Manual Download and Execution
 
 1. Download both PowerSweep.ps1 and PowerSweeplite.ps1 files to your computer
 
 2. Ensure PowerShell execution policy allows script execution
+```powershell
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+```
 
 3. Run the script with administrator privileges
+```powershell
 powershell -ExecutionPolicy Bypass -File .\PowerSweep.ps1
-
+```
 
 ## 📖 How to Use
 
 ### Running PowerSweep
 
 1. Launch PowerShell as Administrator
-2. Navigate to the directory containing PowerSweep.ps1
-3. Run the script:
+2. Execute using one of the methods above
+3. Navigate the menu using the keyboard
 
 ### Main Menu Options
 
@@ -100,25 +121,31 @@ PowerSweep provides results in several sections:
 ### Example Usage Scenarios
 
 **Quick Network Survey:**
-# Default settings will scan your local subnet
-.\PowerSweep.ps1
+```powershell
+# Run PowerSweep with default settings
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
 # Press S to start scanning
-
+```
 
 **Scan Specific IP Range:**
-.\PowerSweep.ps1
+```powershell
+# Run PowerSweep
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
 # Select option 1, then enter 'C' for custom range
 # Enter start IP: 192.168.1.1
 # Enter end IP: 192.168.1.50
 # Press S to start scanning
+```
 
 **Security Audit with HTML Report:**
-
-.\PowerSweep.ps1
+```powershell
+# Run PowerSweep
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
 # Ensure options 4, 5, 6 (ports, shares, vulnerabilities) are enabled
 # Press S to start the scan
 # When prompted, select Y to generate HTML report
 # Results will be saved as an interactive HTML page
+```
 
 ## 📊 Understanding the Output
 
@@ -219,6 +246,13 @@ PowerSweep Lite is a minimal, lightweight network scanner for quickly discoverin
 
 ## Installation & Usage
 
+Run directly from GitHub:
+```powershell
+# Launch PowerShell as Administrator and run:
+irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/PowerSweeplite.ps1 | iex
+```
+
+Or download and execute:
 1. Download the PowerSweep-Lite.ps1 file
 2. Run PowerShell as Administrator (recommended)
 3. Navigate to the directory containing the script
