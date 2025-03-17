@@ -1,17 +1,26 @@
-# PowerSweep
+# PowerSweep 4.0
 
-PowerSweep is an advanced PowerShell network discovery and security assessment tool designed to provide comprehensive network scanning capabilities with an intuitive, colorful console interface.
+PowerSweep is an advanced PowerShell network discovery and security assessment tool designed to provide comprehensive network scanning capabilities with an enhanced, intuitive console interface.
+
+## 🔆 What's New in Version 4.0
+
+- **Enhanced GUI**: Beautiful console interface with info boxes, animated banners, and colored output
+- **Real-time Progress**: Advanced progress bars with scan rate and ETA calculation
+- **Device Type Detection**: Improved device fingerprinting for more accurate identification
+- **HTML Report Generation**: Create beautiful, detailed HTML reports of scan results
+- **Vulnerability Assessment**: Enhanced security scanning with severity ratings and references
+- **Interactive Menu**: Streamlined, intuitive menu system with improved visual feedback
 
 ## 🚀 Features
 
-- Network Discovery: Automatically identifies active hosts on your local network
-- Port Scanning: Detects open ports and maps them to common services
-- Device Fingerprinting: Identifies device types, operating systems, and roles based on open ports and hostnames
-- Share Discovery: Discovers open network shares on Windows devices
-- Vulnerability Assessment: Performs basic security assessment and provides recommendations
-- Multithreaded Scanning: Uses PowerShell runspaces for efficient parallel scanning
-- Colorful UI: User-friendly console interface with detailed progress and results
-- Export Capabilities: Save scan results as CSV for further analysis
+- **Network Discovery**: Automatically identifies active hosts on your local network
+- **Port Scanning**: Detects open ports and maps them to common services
+- **Device Fingerprinting**: Identifies device types, operating systems, and roles based on open ports and hostnames
+- **Share Discovery**: Discovers open network shares on Windows devices
+- **Vulnerability Assessment**: Performs security assessment and provides recommendations
+- **Multithreaded Scanning**: Uses PowerShell runspaces for efficient parallel scanning
+- **Enhanced UI**: Beautiful console interface with detailed progress and results
+- **Export Capabilities**: Save scan results as CSV or HTML for detailed analysis
 
 ## 📋 Requirements
 
@@ -21,13 +30,14 @@ PowerSweep is an advanced PowerShell network discovery and security assessment t
 
 ## 💻 Installation
 
-1. Download the PowerSweep.ps1 file to your computer
+1. Download both PowerSweep.ps1 and PowerSweeplite.ps1 files to your computer
 
 2. Ensure PowerShell execution policy allows script execution
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 
 3. Run the script with administrator privileges
 powershell -ExecutionPolicy Bypass -File .\PowerSweep.ps1
+
 
 ## 📖 How to Use
 
@@ -36,11 +46,10 @@ powershell -ExecutionPolicy Bypass -File .\PowerSweep.ps1
 1. Launch PowerShell as Administrator
 2. Navigate to the directory containing PowerSweep.ps1
 3. Run the script:
-.\PowerSweep.ps1
 
 ### Main Menu Options
 
-PowerSweep offers a straightforward menu interface with the following configuration options:
+PowerSweep offers an intuitive menu interface with the following configuration options:
 
 | Option | Description |
 |--------|-------------|
@@ -52,53 +61,68 @@ PowerSweep offers a straightforward menu interface with the following configurat
 | 6. Vuln Scan | Enable/disable vulnerability assessment |
 | 7. Export | Enable/disable export to CSV |
 | 8. Export Path | Set the path for exporting results |
+| S. Start Scan | Begin scanning with current settings |
+| Q. Quit | Exit PowerSweep |
 
-Press S to start the scan, or Q to quit.
+### New HTML Reports
+
+PowerSweep 4.0 introduces beautiful HTML report generation:
+
+- After each scan, you'll be prompted to create an HTML report
+- Reports include detailed device information, vulnerability findings, and statistics
+- Fully responsive design works on any device or browser
+- Color-coded results for quick visual analysis
+- Can be shared with team members or included in documentation
 
 ### Understanding Scan Results
 
-PowerSweep provides results in three main sections:
+PowerSweep provides results in several sections:
 
-1. Network Discovery Output: Lists all discovered hosts with:
+1. **Network Discovery Output**: Lists all discovered hosts with:
    - IP Address
    - Hostname (if available)
    - Device type
    - Response time
+   - Open ports and services
+   - Available shares
 
-2. Results Summary: Overview of findings including:
+2. **Results Summary**: Overview of findings including:
    - Device types detected
    - Common services found
    - Hosts with open shares
 
-3. Vulnerability Assessment (if enabled): Security analysis including:
+3. **Vulnerability Assessment** (if enabled): Security analysis including:
    - Potentially insecure protocols
    - Exposed services
-   - Security recommendations
+   - Security recommendations with severity ratings
+   - Industry-standard references (CIS, NIST, CVE, etc.)
 
 ### Example Usage Scenarios
 
-Quick Network Survey:
+**Quick Network Survey:**
 # Default settings will scan your local subnet
 .\PowerSweep.ps1
 # Press S to start scanning
 
-Scan Specific IP Range:
+
+**Scan Specific IP Range:**
 .\PowerSweep.ps1
-# Select option 1, then Y to use custom range
+# Select option 1, then enter 'C' for custom range
 # Enter start IP: 192.168.1.1
 # Enter end IP: 192.168.1.50
 # Press S to start scanning
 
-Security Audit with Export:
+**Security Audit with HTML Report:**
+
 .\PowerSweep.ps1
 # Ensure options 4, 5, 6 (ports, shares, vulnerabilities) are enabled
-# Set option 7 (Export) to True
 # Press S to start the scan
-# Results will be saved to the specified path
+# When prompted, select Y to generate HTML report
+# Results will be saved as an interactive HTML page
 
 ## 📊 Understanding the Output
 
-### Device Type Detection
+### Enhanced Device Type Detection
 
 PowerSweep uses multiple techniques to determine device types:
 
@@ -106,19 +130,21 @@ PowerSweep uses multiple techniques to determine device types:
 - Hostname analysis: Checks for keywords that indicate device function
 - Service fingerprinting: Examines open services to determine OS and device role
 
-### Vulnerability Assessment
+### Improved Vulnerability Assessment
 
 The vulnerability scan checks for:
 
 - Insecure protocols: FTP, Telnet, unencrypted HTTP
-- Exposed services: RDP, database servers, VNC
+- Exposed services: RDP, database servers, VNC, printers
 - Network shares: Open, potentially unsecured file shares
 - Missing encryption: Services that should use encryption but don't
+- Multiple high-risk services: Combinations of vulnerable services
 
 Each finding includes:
 - Severity rating (High, Medium, Low)
 - Description of the issue
 - Specific recommendation to address the vulnerability
+- Industry standards and reference information
 
 ### Color Coding
 
@@ -134,13 +160,24 @@ PowerSweep uses color to help identify important information:
 
 ## 🛠️ Advanced Features
 
+### Visual Progress Tracking
+
+The new progress bar provides:
+- Percentage completion
+- Scan rate (IPs/second)
+- Estimated time remaining
+- Visual indicator of progress
+
+### Real-time Discovery Notifications
+
+As hosts are discovered, PowerSweep immediately displays:
+- Device IP and hostname
+- Color-coded device type
+- Response time
+
 ### Custom Port Scanning
 
-PowerSweep scans common ports by default (21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 3306, 3389, 5900, 8080).
-
-### Directory Creation for Exports
-
-When exporting results, PowerSweep automatically checks if the target directory exists and creates it if necessary.
+PowerSweep scans common ports by default (21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 3306, 3389, 5900, 8080, 8443, 9100).
 
 ### Thread Management
 
@@ -148,27 +185,13 @@ Adjust the thread count based on your system's capabilities:
 - Higher thread counts = faster scanning but more resource usage
 - Lower thread counts = slower scanning but less system impact
 
-## 🔍 Script Components
+## ⚠️ Known Issues
 
-The script consists of several key functions:
-
-1. Get-LocalNetworkInfo: Gathers and displays information about the local network interfaces and calculates network range information.
-
-2. Test-Port: Tests if a specific port is open on a given IP address.
-
-3. Scan-Network: The main scanning function that:
-   - Converts IP range to integers for enumeration
-   - Creates a thread pool for parallel processing
-   - Scans IP addresses for active hosts
-   - Identifies open ports and services
-   - Discovers shares on Windows devices
-   - Determines device types
-
-4. Scan-Vulnerabilities: Analyzes results for security issues and provides recommendations.
-
-5. Show-ResultSummary: Summarizes findings in an easy-to-read format.
-
-6. Show-Menu: Provides the user interface for configuring and starting scans.
+- **HTML Report IP Formatting**: Some IP addresses may not display correctly in the HTML report. This is a known issue that will be addressed in a future update.
+- **MAC Address Detection**: Requires administrator privileges; will show as "Unknown" otherwise.
+- **Share Discovery**: May not work on non-Windows devices or without proper authentication.
+- **Device Type Detection Accuracy**: May incorrectly identify devices with unusual port configurations.
+- **Large Network Scanning**: Very large networks (>10,000 hosts) may experience memory pressure during scanning.
 
 ## 🔒 Security Note
 
@@ -176,10 +199,11 @@ This tool is intended for legitimate network administration and security assessm
 
 ## ✅ Troubleshooting
 
-- CSV Export Issues: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
-- MAC Address Detection: Requires admin privileges; will show as "Unknown" otherwise.
-- Share Discovery: May not work on non-Windows devices or without proper authentication.
-- "Failed to enumerate" Messages: Usually indicates the host has firewalls blocking the scan; this is normal.
+- **CSV/HTML Export Issues**: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
+- **No Devices Found**: Check network connectivity and firewall settings. Try increasing the timeout value.
+- **Slow Scanning**: Reduce thread count to lower system impact or increase it to speed up scanning.
+- **Error Messages**: Most "Connection Failed" messages are normal and indicate hosts are not active or are blocking scans.
+- **Missing Device Types**: The script uses multiple detection methods; however, some devices may not be identifiable based on available information.
 
 # PowerSweep Lite
 
@@ -193,39 +217,12 @@ PowerSweep Lite is a minimal, lightweight network scanner for quickly discoverin
 - **Clean Visual Interface**: Colorful, easy-to-read console output
 - **Direct Result Display**: Shows results in a simple table format
 
-## Requirements
-
-- Windows operating system
-- PowerShell 5.1 or higher
-- Administrator privileges recommended (for MAC address detection)
-
 ## Installation & Usage
 
 1. Download the PowerSweep-Lite.ps1 file
 2. Run PowerShell as Administrator (recommended)
 3. Navigate to the directory containing the script
 4. Execute: `.\PowerSweep-Lite.ps1`
-
-## Menu Options
-
-PowerSweep Lite has a simple menu with just three options:
-
-| Option | Description |
-|--------|-------------|
-| 1. IP Range | Set the range of IP addresses to scan |
-| 2. Timeout | Adjust connection timeout (100-5000ms) |
-| 3. Thread Count | Set number of concurrent threads (1-100) |
-
-Press S to start the scan, or Q to quit.
-
-## Output Information
-
-The scan results display the following information:
-- IP Address
-- Hostname (when available)
-- Device Type
-- Response Time (ping latency)
-- MAC Address (requires admin privileges)
 
 ## Key Differences from PowerSweep Full
 
@@ -238,17 +235,15 @@ The scan results display the following information:
 
 ## License
 
-This tool is released under the GNU General Public License v3.0.
+This tool is released under the MIT License.
 
 ## Author
 
 - **Ulises Paiz** - Initial work and development
 
-## Author
+---
 
-- Ulises Paiz - Initial work and development
-
-- MIT License
+MIT License
 
 Copyright (c) 2025 Ulises Paiz
 
