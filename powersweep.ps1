@@ -12,6 +12,20 @@
     Version: 4.0
 #>
 
+param(
+    [string]$Target,
+    [int]$Threads = 50,
+    [int]$Timeout = 300,
+    [string]$Ports,
+    [string]$OutputCsv,
+    [string]$OutputHtml,
+    [string]$OutputJson,
+    [switch]$NoPorts,
+    [switch]$NoShares,
+    [switch]$NoVuln,
+    [switch]$NonInteractive
+)
+
 # Set console properties for better display
 $Host.UI.RawUI.WindowTitle = "PowerSweep v4.0"
 if ($Host.UI.RawUI.WindowSize.Width -lt 120) {
@@ -415,22 +429,24 @@ function Scan-Network {
     param (
         [Parameter(Mandatory=$true)]
         [string]$StartIP,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$EndIP,
-        
+
         [int]$TimeoutMilliseconds = 500,
-        
+
         [int]$MaxThreads = 50,
-        
+
         [bool]$ScanPorts = $true,
-        
+
         [bool]$DiscoverShares = $true,
-        
+
         [Parameter(Mandatory=$true)]
         [bool]$ExportResults,
-        
-        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+
+        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
+
+        [int[]]$CustomPorts = @()
     )
     
     # Convert IP strings to System.Net.IPAddress objects
@@ -503,12 +519,14 @@ function Scan-Network {
     # Store all runspaces here
     $runspaces = New-Object System.Collections.ArrayList
     
-    # Common ports to scan
-    $commonPorts = @(
-        20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 
-        389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 
-        3306, 3389, 5900, 8080, 8443, 9100
-    )
+    # Common ports to scan (use custom ports if provided)
+    $commonPorts = if ($CustomPorts.Count -gt 0) {
+        $CustomPorts
+    } else {
+        @(20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143,
+          389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434,
+          3306, 3389, 5900, 8080, 8443, 9100)
+    }
     
     # Service names lookup
     $serviceNames = @{
@@ -544,6 +562,8 @@ function Scan-Network {
     }
     
     # Create scriptblock for runspaces - This is the main scanning function
+    # NOTE: Get-DeviceType is embedded here because runspaces cannot access
+    # functions defined in the parent scope.
     $scriptBlock = {
         param (
             [string]$ipAddress,
@@ -554,11 +574,117 @@ function Scan-Network {
             [hashtable]$serviceDict,
             [string]$gateway
         )
-        
+
+        # Device type detection (embedded for runspace isolation)
+        function Get-DeviceTypeLocal {
+            param (
+                [string]$ip,
+                [array]$openPorts = @(),
+                [string]$hostname = "",
+                [string]$gw = ""
+            )
+
+            $deviceType = "Unknown"
+            $osType = "Unknown"
+            $deviceRole = "Unknown"
+
+            if ($ip -eq $gw) { return "Router/Gateway" }
+
+            $portSignatures = @{
+                "WebServer"        = @(80, 443, 8080, 8443)
+                "ProxyServer"      = @(3128, 8080, 8118)
+                "FileServer"       = @(139, 445, 2049)
+                "MailServer"       = @(25, 110, 143, 465, 587, 993, 995)
+                "DatabaseServer"   = @(1433, 1521, 3306, 5432)
+                "DirectoryServer"  = @(389, 636, 88)
+                "RemoteAccess"     = @(22, 23, 3389, 5900)
+                "MediaServer"      = @(1900, 8096, 32469)
+                "IoT"              = @(1883, 8883, 5683)
+                "VoIP"             = @(5060, 5061)
+                "PrintServer"      = @(515, 631, 9100)
+                "MonitoringServer" = @(161, 162, 199)
+            }
+
+            $osSignatures = @{
+                "Windows" = @(135, 139, 445, 3389, 5985)
+                "Linux"   = @(22, 111, 2049)
+                "macOS"   = @(548, 5000, 7000)
+                "Network" = @(22, 23, 161, 162, 443, 830)
+            }
+
+            foreach ($signature in $portSignatures.GetEnumerator()) {
+                $matchCount = 0
+                foreach ($port in $signature.Value) {
+                    if ($openPorts -contains $port) { $matchCount++ }
+                }
+                if (($matchCount -ge 2) -or
+                    ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($matchCount / $signature.Value.Count) -ge 0.3)) {
+                    $deviceRole = $signature.Key
+                    break
+                }
+            }
+
+            foreach ($signature in $osSignatures.GetEnumerator()) {
+                $matchCount = 0
+                foreach ($port in $signature.Value) {
+                    if ($openPorts -contains $port) { $matchCount++ }
+                }
+                if (($matchCount -ge 2) -or
+                    ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($matchCount / $signature.Value.Count) -ge 0.3)) {
+                    $osType = $signature.Key
+                    break
+                }
+            }
+
+            if ($openPorts -contains 80 -and $openPorts -contains 443) {
+                if ($openPorts -contains 8080 -or $openPorts -contains 8443) {
+                    $deviceRole = "WebServer"
+                } else {
+                    $deviceRole = "Web-enabled Device"
+                }
+            }
+
+            if ($hostname -ne "Unknown" -and $hostname -ne "") {
+                $lowercaseHostname = $hostname.ToLower()
+
+                if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik|cisco|juniper|tplink|dlink|netgear|asus") {
+                    $deviceRole = "NetworkDevice"; $osType = "Network"
+                }
+                if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark|zebra|dymo|print|mfp") {
+                    $deviceRole = "Printer"; $osType = "Embedded"
+                }
+                if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dvr|dahua|hikvision|axis|bosch|cctv|surveillan|security") {
+                    $deviceRole = "Camera"; $osType = "Embedded"
+                }
+                if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield|media|smart-tv|smarttv|samsung|lg|sony|philips|hisense") {
+                    $deviceRole = "MediaDevice"; $osType = "Embedded"
+                }
+                if ($lowercaseHostname -match "phone|iphone|android|ipad|tablet|mobile|pixel|galaxy|oneplus|xiaomi") {
+                    $deviceRole = "MobileDevice"
+                    if ($lowercaseHostname -match "iphone|ipad|ipod") { $osType = "iOS" }
+                    elseif ($lowercaseHostname -match "android|pixel|galaxy|oneplus|xiaomi") { $osType = "Android" }
+                }
+                if ($lowercaseHostname -match "server|srv|dc|domain|ad|exchange|sql|web|mail|dns|dhcp|ftp|app|backup|db") {
+                    $deviceRole = "Server"
+                    if ($lowercaseHostname -match "win") { $osType = "Windows" }
+                    elseif ($lowercaseHostname -match "lnx|linux|ubuntu|debian|centos|rhel|fedora") { $osType = "Linux" }
+                }
+                if ($lowercaseHostname -match "iot|smart|nest|hue|echo|alexa|google-home|ring|blink|wyze|eufy") {
+                    $deviceRole = "IoT"; $osType = "Embedded"
+                }
+            }
+
+            if ($osType -ne "Unknown" -and $deviceRole -ne "Unknown") { $deviceType = "$osType $deviceRole" }
+            elseif ($osType -ne "Unknown") { $deviceType = $osType }
+            elseif ($deviceRole -ne "Unknown") { $deviceType = $deviceRole }
+
+            return $deviceType
+        }
+
         # Ping the IP to check if it's active
         $ping = New-Object System.Net.NetworkInformation.Ping
         $reply = $ping.Send($ipAddress, $timeout)
-        
+
         if ($reply.Status -eq 'Success') {
             # Try to get hostname
             try {
@@ -566,7 +692,7 @@ function Scan-Network {
             } catch {
                 $hostname = "Unknown"
             }
-            
+
             # Try to get MAC address
             $mac = "Unknown"
             try {
@@ -574,39 +700,36 @@ function Scan-Network {
                 if ($arp -match '([0-9A-F]{2}[:-]){5}([0-9A-F]{2})') {
                     $mac = $matches[0]
                 }
-            } catch {
-                # Do nothing, keep as "Unknown"
-            }
-            
+            } catch { }
+
             $openPorts = @()
             $openPortNumbers = @()
-            
+
             if ($scanPorts) {
                 foreach ($port in $ports) {
                     $tcpClient = New-Object System.Net.Sockets.TcpClient
                     try {
                         $connectResult = $tcpClient.BeginConnect($ipAddress, $port, $null, $null)
                         $connected = $connectResult.AsyncWaitHandle.WaitOne([Math]::Min(200, $timeout), $false)
-                        
+
                         if ($connected -and $tcpClient.Connected) {
                             $service = "Unknown"
-                            if ($serviceDict -ne $null -and $port -ne $null -and $serviceDict.ContainsKey($port)) { 
-                                $service = $serviceDict[$port] 
+                            if ($serviceDict -ne $null -and $port -ne $null -and $serviceDict.ContainsKey($port)) {
+                                $service = $serviceDict[$port]
                             }
                             $openPorts += "$port ($service)"
                             $openPortNumbers += $port
                         }
                     } catch {
-                        # Connection failed, port is closed or filtered
                     } finally {
                         if ($tcpClient.Connected) { $tcpClient.Close() }
                     }
                 }
             }
-            
-            # Determine device type
-            $deviceType = Get-DeviceType -ip $ipAddress -openPorts $openPortNumbers -hostname $hostname -gw $gateway
-            
+
+            # Determine device type using embedded function
+            $deviceType = Get-DeviceTypeLocal -ip $ipAddress -openPorts $openPortNumbers -hostname $hostname -gw $gateway
+
             # Discover network shares
             $shares = @()
             if ($discoverShares -and ($openPortNumbers -contains 445 -or $openPortNumbers -contains 139)) {
@@ -620,26 +743,22 @@ function Scan-Network {
                             }
                         }
                     }
-                } catch {
-                    # Do nothing if shares can't be enumerated
-                }
+                } catch { }
             }
-            
+
             # Create object with results
-            $result = [PSCustomObject]@{
-                IPAddress = $ipAddress
-                Hostname = $hostname
-                MAC = $mac
-                Status = "Online"
+            return [PSCustomObject]@{
+                IPAddress    = $ipAddress
+                Hostname     = $hostname
+                MAC          = $mac
+                Status       = "Online"
                 ResponseTime = "$($reply.RoundtripTime) ms"
-                OpenPorts = ($openPorts -join ", ")
-                DeviceType = $deviceType
-                Shares = ($shares -join ", ")
+                OpenPorts    = ($openPorts -join ", ")
+                DeviceType   = $deviceType
+                Shares       = ($shares -join ", ")
             }
-            
-            return $result
         }
-        
+
         return $null
     }
     
@@ -686,31 +805,32 @@ function Scan-Network {
         foreach ($runspace in $runspaces | Where-Object { -not $_.Completed }) {
             if ($runspace.Handle.IsCompleted) {
                 try {
-                    # Get result and safely handle any errors
-                    $result = $runspace.PowerShell.EndInvoke($runspace.Handle)
-                    
+                    # Get result and unwrap from PSDataCollection
+                    $endResult = $runspace.PowerShell.EndInvoke($runspace.Handle)
+                    $result = if ($endResult.Count -gt 0) { $endResult[0] } else { $null }
+
                     # Process result if not null
                     if ($result -ne $null) {
                         [void]$results.Add($result)
                         $totalActive++
-                        
+
                         # Update device type counts
                         if (-not $deviceTypeCounts.ContainsKey($result.DeviceType)) {
                             $deviceTypeCounts[$result.DeviceType] = 0
                         }
                         $deviceTypeCounts[$result.DeviceType]++
-                        
+
                         # Display active host found with colorful output
                         Write-Host ("[{0}/{1}] " -f $totalScanned, $totalIPs) -NoNewline -ForegroundColor Gray
                         Write-Host "Found: " -NoNewline -ForegroundColor White
                         Write-Host "$($result.IPAddress)" -NoNewline -ForegroundColor Green
-                        
+
                         if ($result.Hostname -ne "Unknown") {
                             Write-Host " ($($result.Hostname))" -NoNewline -ForegroundColor Cyan
                         }
-                        
+
                         Write-Host " - " -NoNewline
-                        
+
                         # Color-code device types
                         switch -Regex ($result.DeviceType) {
                             "Server" { Write-Host "$($result.DeviceType)" -ForegroundColor Red }
@@ -1564,8 +1684,17 @@ function Export-HtmlReport {
 </html>
 "@
     
+    # Close hosts table when no vulnerabilities present
+    $hostTableClosing = ""
+    if ($Vulnerabilities.Count -eq 0) {
+        $hostTableClosing = @"
+            </table>
+        </div>
+"@
+    }
+
     # Combine all HTML content
-    $htmlContent = $htmlHeadContent + $deviceTypeRows + $hostTableHeader + $hostRows + $vulnerabilitySection + $htmlFooter
+    $htmlContent = $htmlHeadContent + $deviceTypeRows + $hostTableHeader + $hostRows + $hostTableClosing + $vulnerabilitySection + $htmlFooter
     
     # Write HTML content to file
     try {
@@ -1600,6 +1729,108 @@ function Export-HtmlReport {
         
         Show-InfoBox -Title "REPORT GENERATION ERROR" -Content $errorContent -BorderColor Red -TitleColor Yellow
         
+        return $false
+    }
+}
+
+function Export-JsonReport {
+    param (
+        [Parameter(Mandatory=$true)]
+        [array]$Results,
+
+        [array]$Vulnerabilities = @(),
+
+        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+    )
+
+    $reportHeaderContent = @(
+        "Creating JSON report of scan results...",
+        "",
+        "Report will be saved to:",
+        "$ExportPath"
+    )
+
+    Show-InfoBox -Title "JSON REPORT GENERATION" -Content $reportHeaderContent -BorderColor Magenta -TitleColor Yellow
+
+    # Build structured report object
+    $report = [ordered]@{
+        metadata = [ordered]@{
+            tool       = "PowerSweep"
+            version    = "4.0"
+            scanDate   = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+            totalHosts = $Results.Count
+        }
+        hosts = @()
+        vulnerabilities = @()
+    }
+
+    # Sort results by IP
+    $sortedResults = $Results | Sort-Object {
+        $octets = $_.IPAddress -split '\.'
+        [int]$octets[0]*16777216 + [int]$octets[1]*65536 + [int]$octets[2]*256 + [int]$octets[3]
+    }
+
+    foreach ($hostItem in $sortedResults) {
+        $hostEntry = [ordered]@{
+            ipAddress    = $hostItem.IPAddress
+            hostname     = $hostItem.Hostname
+            mac          = $hostItem.MAC
+            status       = $hostItem.Status
+            responseTime = $hostItem.ResponseTime
+            deviceType   = $hostItem.DeviceType
+            openPorts    = $hostItem.OpenPorts
+            shares       = $hostItem.Shares
+        }
+        $report.hosts += $hostEntry
+    }
+
+    foreach ($vulnHost in $Vulnerabilities) {
+        $vulnEntry = [ordered]@{
+            ipAddress       = $vulnHost.IPAddress
+            hostname        = $vulnHost.Hostname
+            deviceType      = $vulnHost.DeviceType
+            vulnerabilities = @()
+        }
+        foreach ($vuln in $vulnHost.Vulnerabilities) {
+            $vulnEntry.vulnerabilities += [ordered]@{
+                severity       = $vuln.Severity
+                type           = $vuln.Type
+                description    = $vuln.Description
+                recommendation = $vuln.Recommendation
+                references     = $vuln.References
+            }
+        }
+        $report.vulnerabilities += $vulnEntry
+    }
+
+    try {
+        $directory = Split-Path -Path $ExportPath -Parent
+        if (-not (Test-Path -Path $directory)) {
+            New-Item -Path $directory -ItemType Directory -Force | Out-Null
+        }
+
+        $report | ConvertTo-Json -Depth 10 | Out-File -FilePath $ExportPath -Encoding UTF8
+
+        $successContent = @(
+            "JSON report generated successfully!",
+            "",
+            "Saved to: $ExportPath",
+            "",
+            "This file can be parsed by other tools for further analysis."
+        )
+
+        Show-InfoBox -Title "REPORT GENERATION COMPLETE" -Content $successContent -BorderColor Green -TitleColor White
+        return $true
+    }
+    catch {
+        $errorContent = @(
+            "Error generating JSON report:",
+            "$($_.Exception.Message)",
+            "",
+            "Please check the path and permissions and try again."
+        )
+
+        Show-InfoBox -Title "REPORT GENERATION ERROR" -Content $errorContent -BorderColor Red -TitleColor Yellow
         return $false
     }
 }
@@ -1780,6 +2011,7 @@ function Show-Menu {
         VulnerabilityScan = $true
         ExportResults = $false
         ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        CustomPorts = @()
     }
     
     $menuActive = $true
@@ -1789,6 +2021,7 @@ function Show-Menu {
         Show-AnimatedBanner
         
         # Create a visually appealing settings display
+        $portsDisplay = if ($scanOptions.CustomPorts.Count -gt 0) { ($scanOptions.CustomPorts -join ", ") } else { "Default (29 common ports)" }
         $settingsContent = @(
             "1. IP Range     : $($scanOptions.StartIP) to $($scanOptions.EndIP)",
             "2. Timeout      : $($scanOptions.Timeout) ms",
@@ -1797,7 +2030,8 @@ function Show-Menu {
             "5. Find Shares  : $($scanOptions.DiscoverShares)",
             "6. Vuln Scan    : $($scanOptions.VulnerabilityScan)",
             "7. Export       : $($scanOptions.ExportResults)",
-            "8. Export Path  : $($scanOptions.ExportPath)"
+            "8. Export Path  : $($scanOptions.ExportPath)",
+            "9. Port List    : $portsDisplay"
         )
         
         Show-InfoBox -Title "CURRENT SETTINGS" -Content $settingsContent -BorderColor Cyan -TitleColor Yellow
@@ -1812,6 +2046,7 @@ function Show-Menu {
             "V. Toggle Vulnerability Scanning",
             "E. Toggle Export Results",
             "P. Change Export Path",
+            "R. Configure Port List",
             "A. About PowerSweep",
             "Q. Quit PowerSweep"
         )
@@ -1988,6 +2223,50 @@ function Show-Menu {
                     Start-Sleep -Seconds 1
                 }
             }
+            "[Rr]" {
+                Clear-Host
+                $portConfigTitle = "PORT LIST CONFIGURATION"
+                $portConfigContent = @(
+                    "Configure which ports to scan on discovered hosts.",
+                    "",
+                    "Enter a comma-separated list of port numbers.",
+                    "Example: 22,80,443,3389,8080",
+                    "",
+                    "Leave blank to reset to default ports (29 common ports).",
+                    ""
+                )
+
+                Show-InfoBox -Title $portConfigTitle -Content $portConfigContent -BorderColor Blue -TitleColor Cyan
+
+                $portInput = Read-Host "Enter ports (comma-separated) or press Enter for defaults"
+                if ([string]::IsNullOrWhiteSpace($portInput)) {
+                    $scanOptions.CustomPorts = @()
+                    $resetContent = @("Port list reset to defaults (29 common ports)")
+                    Show-InfoBox -Title "PORTS RESET" -Content $resetContent -BorderColor Green -TitleColor White
+                } else {
+                    $parsedPorts = @()
+                    $valid = $true
+                    foreach ($p in ($portInput -split ',')) {
+                        $trimmed = $p.Trim()
+                        $portNum = 0
+                        if ([int]::TryParse($trimmed, [ref]$portNum) -and $portNum -ge 1 -and $portNum -le 65535) {
+                            $parsedPorts += $portNum
+                        } else {
+                            Write-Host "Invalid port: '$trimmed'. Ports must be 1-65535." -ForegroundColor Red
+                            $valid = $false
+                            break
+                        }
+                    }
+                    if ($valid -and $parsedPorts.Count -gt 0) {
+                        $scanOptions.CustomPorts = $parsedPorts
+                        $portContent = @("Custom port list set: $($parsedPorts -join ', ')")
+                        Show-InfoBox -Title "PORTS UPDATED" -Content $portContent -BorderColor Green -TitleColor White
+                    } else {
+                        Write-Host "Keeping current port configuration." -ForegroundColor Yellow
+                    }
+                }
+                Start-Sleep -Seconds 1
+            }
             "[Aa]" {
                 Clear-Host
                 $aboutContent = @(
@@ -2018,7 +2297,7 @@ function Show-Menu {
             }
             "[Ss]" {
                 Clear-Host
-                $results = Scan-Network -StartIP $scanOptions.StartIP -EndIP $scanOptions.EndIP -TimeoutMilliseconds $scanOptions.Timeout -MaxThreads $scanOptions.ThreadCount -ScanPorts $scanOptions.ScanPorts -DiscoverShares $scanOptions.DiscoverShares -ExportResults $scanOptions.ExportResults -ExportPath $scanOptions.ExportPath
+                $results = Scan-Network -StartIP $scanOptions.StartIP -EndIP $scanOptions.EndIP -TimeoutMilliseconds $scanOptions.Timeout -MaxThreads $scanOptions.ThreadCount -ScanPorts $scanOptions.ScanPorts -DiscoverShares $scanOptions.DiscoverShares -ExportResults $scanOptions.ExportResults -ExportPath $scanOptions.ExportPath -CustomPorts $scanOptions.CustomPorts
                 
                 if ($results.Count -gt 0) {
                     Show-ResultSummary -Results $results
@@ -2052,7 +2331,29 @@ function Show-Menu {
                         
                         Export-HtmlReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $htmlPathToUse
                     }
-                    
+
+                    # Ask about JSON report
+                    $jsonReportContent = @(
+                        "Would you like to generate a JSON report of scan results?",
+                        "JSON reports can be parsed by other tools for further analysis."
+                    )
+
+                    Show-InfoBox -Title "GENERATE JSON REPORT?" -Content $jsonReportContent -BorderColor Cyan -TitleColor White
+
+                    $generateJson = Read-Host "Generate JSON report? (Y/N)"
+                    if ($generateJson -eq "Y" -or $generateJson -eq "y") {
+                        $jsonPath = "$env:USERPROFILE\Desktop\PowerSweep_Report_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+                        $jsonPathPrompt = Read-Host "Enter JSON path or press Enter for default [$jsonPath]"
+
+                        $jsonPathToUse = if ([string]::IsNullOrWhiteSpace($jsonPathPrompt)) {
+                            $jsonPath
+                        } else {
+                            $jsonPathPrompt
+                        }
+
+                        Export-JsonReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $jsonPathToUse
+                    }
+
                     # Ask about CSV export if not already exporting
                     if (-not $scanOptions.ExportResults) {
                         $exportContent = @(
@@ -2141,6 +2442,81 @@ function Show-Menu {
 }
 
 # Main script execution
+
+# Non-interactive mode: run scan directly from CLI parameters and exit
+if ($Target -or $NonInteractive) {
+    # Get local network information (suppressed banner)
+    $Global:NetworkInfo = Get-LocalNetworkInfo
+
+    # Determine scan range
+    if ($Target) {
+        if ($Target -match '^(.+)-(.+)$') {
+            $startIP = $matches[1]
+            $endIP = $matches[2]
+        } else {
+            $startIP = $Target
+            $endIP = $Target
+        }
+    } else {
+        $startIP = $Global:NetworkInfo.FirstIP
+        $endIP = $Global:NetworkInfo.LastIP
+    }
+
+    # Parse custom ports if provided
+    $customPortList = @()
+    if ($Ports) {
+        foreach ($p in ($Ports -split ',')) {
+            $trimmed = $p.Trim()
+            $portNum = 0
+            if ([int]::TryParse($trimmed, [ref]$portNum) -and $portNum -ge 1 -and $portNum -le 65535) {
+                $customPortList += $portNum
+            }
+        }
+    }
+
+    # Run the scan
+    $results = Scan-Network -StartIP $startIP -EndIP $endIP `
+        -TimeoutMilliseconds $Timeout -MaxThreads $Threads `
+        -ScanPorts (-not $NoPorts) -DiscoverShares (-not $NoShares) `
+        -ExportResults ([bool]$OutputCsv) `
+        -ExportPath $(if ($OutputCsv) { $OutputCsv } else { "unused.csv" }) `
+        -CustomPorts $customPortList
+
+    if ($results.Count -gt 0) {
+        Show-ResultSummary -Results $results
+
+        $vulnerabilities = @()
+        if (-not $NoVuln) {
+            $vulnerabilities = Scan-Vulnerabilities -Results $results
+        }
+
+        # Export to requested formats
+        if ($OutputCsv) {
+            $sortedResults = $results | Sort-Object {
+                $octets = $_.IPAddress -split '\.'
+                [int]$octets[0]*16777216 + [int]$octets[1]*65536 + [int]$octets[2]*256 + [int]$octets[3]
+            }
+            $directory = Split-Path -Path $OutputCsv -Parent
+            if ($directory -and -not (Test-Path -Path $directory)) {
+                New-Item -Path $directory -ItemType Directory -Force | Out-Null
+            }
+            $sortedResults | Export-Csv -Path $OutputCsv -NoTypeInformation
+            Write-Host "CSV exported to: $OutputCsv" -ForegroundColor Green
+        }
+
+        if ($OutputHtml) {
+            Export-HtmlReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $OutputHtml
+        }
+
+        if ($OutputJson) {
+            Export-JsonReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $OutputJson
+        }
+    }
+
+    exit
+}
+
+# Interactive mode
 Clear-Host
 Show-AnimatedBanner
 
@@ -2154,9 +2530,9 @@ if (-not $isAdmin) {
         "MAC address detection and share enumeration may not work properly.",
         "Consider restarting the script as administrator for full functionality."
     )
-    
+
     Show-InfoBox -Title "WARNING" -Content $adminWarningContent -BorderColor Red -TitleColor Yellow
-    
+
     $continue = Read-Host "Continue anyway? (Y/N)"
     if ($continue -ne "Y" -and $continue -ne "y") {
         exit

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer on powersweep.ps1
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./powersweep.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -Recurse
+          if ($results) {
+            $results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)"
+          }
+          Write-Host "No issues found in powersweep.ps1"
+
+      - name: Run PSScriptAnalyzer on PowerSweeplite.ps1
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./PowerSweeplite.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -Recurse
+          if ($results) {
+            $results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)"
+          }
+          Write-Host "No issues found in PowerSweeplite.ps1"
+
+  test:
+    name: Pester Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0
+
+      - name: Run Pester Tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = "./tests"
+          $config.Output.Verbosity = "Detailed"
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = "test-results.xml"
+          $config.TestResult.OutputFormat = "NUnitXml"
+          Invoke-Pester -Configuration $config
