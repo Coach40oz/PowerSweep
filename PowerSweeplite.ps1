@@ -436,14 +436,15 @@ function Scan-Network {
         foreach ($runspace in $runspaces | Where-Object { -not $_.Completed }) {
             if ($runspace.Handle.IsCompleted) {
                 try {
-                    # Get result and safely handle any errors
-                    $result = $runspace.PowerShell.EndInvoke($runspace.Handle)
-                    
+                    # Get result and unwrap from PSDataCollection
+                    $endResult = $runspace.PowerShell.EndInvoke($runspace.Handle)
+                    $result = if ($endResult.Count -gt 0) { $endResult[0] } else { $null }
+
                     # Process result if not null
                     if ($result -ne $null) {
                         [void]$results.Add($result)
                         $totalActive++
-                        
+
                         # Update device type counts
                         if (-not $deviceTypeCounts.ContainsKey($result.DeviceType)) {
                             $deviceTypeCounts[$result.DeviceType] = 0
