@@ -9,11 +9,15 @@
     all with an improved, user-friendly console interface.
 .NOTES
     Author: Ulises Paiz
-    Version: 4.0
+    Version: 4.1
+    Changelog:
+      v4.1 - Added custom port scanning, JSON export, scan profiles, config file support,
+             enhanced device fingerprinting, result filtering, and scan comparison
+      v4.1 - Enhanced GUI, HTML reports, vulnerability scanning
 #>
 
 # Set console properties for better display
-$Host.UI.RawUI.WindowTitle = "PowerSweep v4.0"
+$Host.UI.RawUI.WindowTitle = "PowerSweep v4.1"
 if ($Host.UI.RawUI.WindowSize.Width -lt 120) {
     try {
         $Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(120, 40)
@@ -155,6 +159,299 @@ function Show-ProgressBar {
     if ($ShowPercent) {
         Write-Host " $PercentComplete%" -NoNewline -ForegroundColor Cyan
     }
+}
+
+function Export-JsonReport {
+    <#
+    .SYNOPSIS
+        Exports scan results to JSON format
+    .DESCRIPTION
+        Generates a JSON file containing all scan results for easy integration with other tools
+    .PARAMETER Results
+        Array of scan result objects
+    .PARAMETER Vulnerabilities
+        Array of vulnerability objects (optional)
+    .PARAMETER ExportPath
+        Path where the JSON file will be saved
+    .EXAMPLE
+        Export-JsonReport -Results $scanResults -ExportPath "C:\Reports\scan.json"
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
+        [array]$Results,
+
+        [array]$Vulnerabilities = @(),
+
+        [ValidateNotNullOrEmpty()]
+        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+    )
+
+    Write-Verbose "Exporting results to JSON: $ExportPath"
+
+    try {
+        $exportData = @{
+            ScanMetadata = @{
+                ScanDate = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                Tool = "PowerSweep"
+                Version = "4.1"
+                TotalHosts = $Results.Count
+                VulnerabilitiesFound = $Vulnerabilities.Count
+            }
+            Hosts = $Results
+            Vulnerabilities = $Vulnerabilities
+        }
+
+        $exportData | ConvertTo-Json -Depth 10 | Out-File -FilePath $ExportPath -Encoding UTF8
+
+        $successContent = @(
+            "JSON export completed successfully!",
+            "",
+            "Saved to: $ExportPath",
+            "",
+            "You can now import this data into other tools or scripts."
+        )
+
+        Show-InfoBox -Title "JSON EXPORT COMPLETE" -Content $successContent -BorderColor Green -TitleColor White
+        return $true
+    }
+    catch {
+        $errorContent = @(
+            "Error exporting JSON:",
+            "$($_.Exception.Message)"
+        )
+
+        Show-InfoBox -Title "JSON EXPORT ERROR" -Content $errorContent -BorderColor Red -TitleColor Yellow
+        return $false
+    }
+}
+
+function Get-ScanProfile {
+    <#
+    .SYNOPSIS
+        Returns predefined scan profile configurations
+    .DESCRIPTION
+        Provides Quick, Full, and Security scan profiles with optimized settings
+    .PARAMETER ProfileName
+        Name of the profile (Quick/Full/Security)
+    .EXAMPLE
+        $profile = Get-ScanProfile -ProfileName "Full"
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Quick", "Full", "Security")]
+        [string]$ProfileName
+    )
+
+    $profiles = @{
+        "Quick" = @{
+            Description = "Fast scan - ping sweep only"
+            Timeout = 200
+            ThreadCount = 100
+            ScanPorts = $false
+            DiscoverShares = $false
+            VulnerabilityScan = $false
+            Ports = @()
+        }
+        "Full" = @{
+            Description = "Comprehensive scan - all features enabled"
+            Timeout = 500
+            ThreadCount = 50
+            ScanPorts = $true
+            DiscoverShares = $true
+            VulnerabilityScan = $true
+            Ports = @(20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143,
+                     389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434,
+                     3306, 3389, 5900, 8080, 8443, 9100)
+        }
+        "Security" = @{
+            Description = "Security audit - focus on vulnerabilities"
+            Timeout = 1000
+            ThreadCount = 30
+            ScanPorts = $true
+            DiscoverShares = $true
+            VulnerabilityScan = $true
+            Ports = @(21, 23, 25, 80, 110, 135, 139, 143, 389, 443, 445, 465,
+                     587, 636, 993, 995, 1433, 1521, 3306, 3389, 5432, 5900,
+                     5985, 5986, 6379, 8080, 8443, 9100, 27017)
+        }
+    }
+
+    return $profiles[$ProfileName]
+}
+
+function Save-ScanConfig {
+    <#
+    .SYNOPSIS
+        Saves scan configuration to a file
+    .DESCRIPTION
+        Persists scan settings to a JSON file for future use
+    .PARAMETER Config
+        Hashtable containing scan configuration
+    .PARAMETER FilePath
+        Path to save the configuration file
+    .EXAMPLE
+        Save-ScanConfig -Config $scanOptions -FilePath "C:\PowerSweep\myconfig.json"
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [hashtable]$Config,
+
+        [string]$FilePath = "$env:USERPROFILE\.powersweep\config.json"
+    )
+
+    try {
+        $directory = Split-Path -Path $FilePath -Parent
+        if (-not (Test-Path -Path $directory)) {
+            New-Item -Path $directory -ItemType Directory -Force | Out-Null
+        }
+
+        $Config | ConvertTo-Json -Depth 5 | Out-File -FilePath $FilePath -Encoding UTF8
+
+        Write-Verbose "Configuration saved to: $FilePath"
+        return $true
+    }
+    catch {
+        Write-Error "Failed to save configuration: $_"
+        return $false
+    }
+}
+
+function Load-ScanConfig {
+    <#
+    .SYNOPSIS
+        Loads scan configuration from a file
+    .DESCRIPTION
+        Retrieves previously saved scan settings from a JSON file
+    .PARAMETER FilePath
+        Path to the configuration file
+    .EXAMPLE
+        $config = Load-ScanConfig -FilePath "C:\PowerSweep\myconfig.json"
+    #>
+    [CmdletBinding()]
+    param (
+        [string]$FilePath = "$env:USERPROFILE\.powersweep\config.json"
+    )
+
+    try {
+        if (Test-Path -Path $FilePath) {
+            $config = Get-Content -Path $FilePath -Raw | ConvertFrom-Json
+            Write-Verbose "Configuration loaded from: $FilePath"
+            return $config
+        }
+        else {
+            Write-Verbose "No configuration file found at: $FilePath"
+            return $null
+        }
+    }
+    catch {
+        Write-Error "Failed to load configuration: $_"
+        return $null
+    }
+}
+
+function Compare-ScanResults {
+    <#
+    .SYNOPSIS
+        Compares two network scans
+    .DESCRIPTION
+        Identifies new, removed, and changed hosts between two scans
+    .PARAMETER PreviousScan
+        Results from the previous scan
+    .PARAMETER CurrentScan
+        Results from the current scan
+    .EXAMPLE
+        $comparison = Compare-ScanResults -PreviousScan $oldResults -CurrentScan $newResults
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [array]$PreviousScan,
+
+        [Parameter(Mandatory=$true)]
+        [array]$CurrentScan
+    )
+
+    $prevIPs = $PreviousScan | Select-Object -ExpandProperty IPAddress
+    $currIPs = $CurrentScan | Select-Object -ExpandProperty IPAddress
+
+    $newHosts = $CurrentScan | Where-Object { $_.IPAddress -notin $prevIPs }
+    $removedHosts = $PreviousScan | Where-Object { $_.IPAddress -notin $currIPs }
+    $unchangedIPs = $prevIPs | Where-Object { $_ -in $currIPs }
+
+    $changedHosts = @()
+    foreach ($ip in $unchangedIPs) {
+        $prev = $PreviousScan | Where-Object { $_.IPAddress -eq $ip }
+        $curr = $CurrentScan | Where-Object { $_.IPAddress -eq $ip }
+
+        if (($prev.OpenPorts -ne $curr.OpenPorts) -or
+            ($prev.Hostname -ne $curr.Hostname) -or
+            ($prev.DeviceType -ne $curr.DeviceType)) {
+            $changedHosts += [PSCustomObject]@{
+                IPAddress = $ip
+                PreviousState = $prev
+                CurrentState = $curr
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        NewHosts = $newHosts
+        RemovedHosts = $removedHosts
+        ChangedHosts = $changedHosts
+        UnchangedCount = ($unchangedIPs.Count - $changedHosts.Count)
+    }
+}
+
+function Filter-ScanResults {
+    <#
+    .SYNOPSIS
+        Filters scan results based on criteria
+    .DESCRIPTION
+        Filters network scan results by device type, open ports, or hostname
+    .PARAMETER Results
+        Array of scan results to filter
+    .PARAMETER DeviceType
+        Filter by device type (regex pattern)
+    .PARAMETER HasPort
+        Filter by presence of specific open port
+    .PARAMETER Hostname
+        Filter by hostname (regex pattern)
+    .EXAMPLE
+        $servers = Filter-ScanResults -Results $scanResults -DeviceType "Server"
+    .EXAMPLE
+        $webServers = Filter-ScanResults -Results $scanResults -HasPort 443
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [array]$Results,
+
+        [string]$DeviceType,
+
+        [int]$HasPort,
+
+        [string]$Hostname
+    )
+
+    $filtered = $Results
+
+    if ($DeviceType) {
+        $filtered = $filtered | Where-Object { $_.DeviceType -match $DeviceType }
+    }
+
+    if ($HasPort) {
+        $filtered = $filtered | Where-Object { $_.OpenPorts -match "\b$HasPort\s*\(" }
+    }
+
+    if ($Hostname) {
+        $filtered = $filtered | Where-Object { $_.Hostname -match $Hostname }
+    }
+
+    return $filtered
 }
 
 function Get-LocalNetworkInfo {
@@ -566,7 +863,10 @@ function Scan-Network {
         [bool]$ExportResults,
 
         [ValidateNotNullOrEmpty()]
-        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        [string]$ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
+
+        [ValidateNotNull()]
+        [array]$CustomPorts = @()
     )
 
     Write-Verbose "Starting network scan from $StartIP to $EndIP"
@@ -641,12 +941,19 @@ function Scan-Network {
     # Store all runspaces here
     $runspaces = New-Object System.Collections.ArrayList
     
-    # Common ports to scan
-    $commonPorts = @(
-        20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 
-        389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 
-        3306, 3389, 5900, 8080, 8443, 9100
-    )
+    # Determine which ports to scan
+    if ($CustomPorts.Count -gt 0) {
+        $portsToScan = $CustomPorts
+        Write-Verbose "Using custom port list: $($CustomPorts -join ', ')"
+    }
+    else {
+        # Common ports to scan (default)
+        $portsToScan = @(
+            20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143,
+            389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434,
+            3306, 3389, 5900, 8080, 8443, 9100
+        )
+    }
     
     # Service names lookup
     $serviceNames = @{
@@ -950,7 +1257,7 @@ function Scan-Network {
         $powershell.AddParameter("timeout", $TimeoutMilliseconds)
         $powershell.AddParameter("scanPorts", $ScanPorts)
         $powershell.AddParameter("discoverShares", $DiscoverShares)
-        $powershell.AddParameter("ports", $commonPorts)
+        $powershell.AddParameter("ports", $portsToScan)
         $powershell.AddParameter("serviceDict", $serviceNames)
         $powershell.AddParameter("gateway", $Global:NetworkInfo.Gateway)
         
@@ -1889,7 +2196,7 @@ function Export-HtmlReport {
         </div>
         
         <div class="footer">
-            <p>Generated by PowerSweep v4.0 | Author: Ulises Paiz</p>
+            <p>Generated by PowerSweep v4.1 | Author: Ulises Paiz</p>
         </div>
     </div>
 </body>
@@ -2048,7 +2355,7 @@ function Show-AnimatedBanner {
  ██╔═══╝ ██║   ██║██║███╗██║██╔══╝  ██╔══██╗╚════██║██║███╗██║██╔══╝  ██╔══╝  ██╔═══╝  
  ██║     ╚██████╔╝╚███╔███╔╝███████╗██║  ██║███████║╚███╔███╔╝███████╗███████╗██║      
  ╚═╝      ╚═════╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚══════╝ ╚══╝╚══╝ ╚══════╝╚══════╝╚═╝      
-                                         v4.0                                    
+                                         v4.1                                    
         Advanced PowerShell Network Discovery Tool by Ulises Paiz
 "@
 
@@ -2112,6 +2419,10 @@ function Show-Menu {
         VulnerabilityScan = $true
         ExportResults = $false
         ExportPath = "$env:USERPROFILE\Desktop\NetworkScan_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        CustomPorts = @()
+        ScanProfile = "Custom"
+        ExportJSON = $false
+        LastScanResults = @()
     }
     
     $menuActive = $true
@@ -2121,15 +2432,15 @@ function Show-Menu {
         Show-AnimatedBanner
         
         # Create a visually appealing settings display
+        $customPortsDisplay = if ($scanOptions.CustomPorts.Count -gt 0) {
+            "$($scanOptions.CustomPorts.Count) custom ports"
+        } else { "Default ports" }
+
         $settingsContent = @(
-            "1. IP Range     : $($scanOptions.StartIP) to $($scanOptions.EndIP)",
-            "2. Timeout      : $($scanOptions.Timeout) ms",
-            "3. Thread Count : $($scanOptions.ThreadCount)",
-            "4. Scan Ports   : $($scanOptions.ScanPorts)",
-            "5. Find Shares  : $($scanOptions.DiscoverShares)",
-            "6. Vuln Scan    : $($scanOptions.VulnerabilityScan)",
-            "7. Export       : $($scanOptions.ExportResults)",
-            "8. Export Path  : $($scanOptions.ExportPath)"
+            "Profile: $($scanOptions.ScanProfile) | IP: $($scanOptions.StartIP) to $($scanOptions.EndIP)",
+            "Timeout: $($scanOptions.Timeout)ms | Threads: $($scanOptions.ThreadCount) | Ports: $customPortsDisplay",
+            "Features: Ports=$($scanOptions.ScanPorts) | Shares=$($scanOptions.DiscoverShares) | Vulns=$($scanOptions.VulnerabilityScan)",
+            "Export: CSV=$($scanOptions.ExportResults) | JSON=$($scanOptions.ExportJSON)"
         )
         
         Show-InfoBox -Title "CURRENT SETTINGS" -Content $settingsContent -BorderColor Cyan -TitleColor Yellow
@@ -2137,13 +2448,23 @@ function Show-Menu {
         # Actions menu
         $actionsContent = @(
             "S. Start Network Scan",
-            "C. Change IP Range to Custom Values",
-            "N. Reset IP Range to Network Range",
+            "---------------",
+            "1. Load Scan Profile (Quick/Full/Security)",
+            "2. Change IP Range",
+            "3. Configure Timeouts & Threads",
+            "4. Set Custom Ports",
+            "---------------",
             "T. Toggle Port Scanning",
             "H. Toggle Share Discovery",
             "V. Toggle Vulnerability Scanning",
-            "E. Toggle Export Results",
-            "P. Change Export Path",
+            "E. Toggle CSV Export",
+            "J. Toggle JSON Export",
+            "---------------",
+            "F. Filter Last Scan Results",
+            "C. Compare with Previous Scan",
+            "X. Save Current Configuration",
+            "L. Load Saved Configuration",
+            "---------------",
             "A. About PowerSweep",
             "Q. Quit PowerSweep"
         )
@@ -2166,7 +2487,49 @@ function Show-Menu {
         Write-Host "┘" -ForegroundColor Yellow
         
         switch -Regex ($choice) {
-            "1|[Cc]" {
+            "^1$" {
+                # Load Scan Profile
+                Clear-Host
+                $profileContent = @(
+                    "Available Scan Profiles:",
+                    "",
+                    "1. Quick   - Fast ping sweep (no port scan)",
+                    "2. Full    - Comprehensive scan (all features)",
+                    "3. Security - Security audit focus",
+                    ""
+                )
+
+                Show-InfoBox -Title "SCAN PROFILES" -Content $profileContent -BorderColor Magenta -TitleColor Yellow
+
+                $profileChoice = Read-Host "Select profile (1-3)"
+                $profileName = switch ($profileChoice) {
+                    "1" { "Quick" }
+                    "2" { "Full" }
+                    "3" { "Security" }
+                    default { $null }
+                }
+
+                if ($profileName) {
+                    $profile = Get-ScanProfile -ProfileName $profileName
+                    $scanOptions.Timeout = $profile.Timeout
+                    $scanOptions.ThreadCount = $profile.ThreadCount
+                    $scanOptions.ScanPorts = $profile.ScanPorts
+                    $scanOptions.DiscoverShares = $profile.DiscoverShares
+                    $scanOptions.VulnerabilityScan = $profile.VulnerabilityScan
+                    $scanOptions.CustomPorts = $profile.Ports
+                    $scanOptions.ScanProfile = $profileName
+
+                    $successContent = @(
+                        "Profile '$profileName' loaded successfully!",
+                        "",
+                        "$($profile.Description)"
+                    )
+                    Show-InfoBox -Title "PROFILE LOADED" -Content $successContent -BorderColor Green -TitleColor White
+                    Start-Sleep -Seconds 1
+                }
+            }
+            "^2$" {
+                # Change IP Range
                 Clear-Host
                 $customTitle = "CUSTOM IP RANGE CONFIGURATION"
                 $customContent = @(
@@ -2174,52 +2537,70 @@ function Show-Menu {
                     "Current range: $($scanOptions.StartIP) to $($scanOptions.EndIP)",
                     ""
                 )
-                
+
                 Show-InfoBox -Title $customTitle -Content $customContent -BorderColor Magenta -TitleColor Yellow
                 $scanOptions.StartIP = Read-Host "Enter start IP"
                 $scanOptions.EndIP = Read-Host "Enter end IP"
+                $scanOptions.ScanProfile = "Custom"
             }
-            "2" {
+            "^3$" {
+                # Configure Timeouts & Threads
                 Clear-Host
-                $timeoutTitle = "TIMEOUT CONFIGURATION"
-                $timeoutContent = @(
-                    "Set the timeout value in milliseconds for host discovery.",
-                    "Higher values may find more hosts but scan slower.",
-                    "Current value: $($scanOptions.Timeout) ms",
-                    "Recommended range: 100-5000 ms",
+                $configTitle = "ADVANCED CONFIGURATION"
+                $configContent = @(
+                    "Configure scan timing and concurrency settings",
+                    "",
+                    "Current Timeout: $($scanOptions.Timeout) ms",
+                    "Current Thread Count: $($scanOptions.ThreadCount)",
                     ""
                 )
-                
-                Show-InfoBox -Title $timeoutTitle -Content $timeoutContent -BorderColor Blue -TitleColor Cyan
-                
-                $timeout = Read-Host "Enter timeout in milliseconds (100-5000)"
+
+                Show-InfoBox -Title $configTitle -Content $configContent -BorderColor Blue -TitleColor Cyan
+
+                $timeout = Read-Host "Enter timeout in milliseconds (100-5000) [Current: $($scanOptions.Timeout)]"
                 if ([int]::TryParse($timeout, [ref]$null) -and [int]$timeout -ge 100 -and [int]$timeout -le 5000) {
                     $scanOptions.Timeout = [int]$timeout
-                } else {
-                    Write-Host "Invalid input. Keeping current value ($($scanOptions.Timeout)ms)" -ForegroundColor Red
-                    Start-Sleep -Seconds 1
                 }
-            }
-            "3" {
-                Clear-Host
-                $threadTitle = "THREAD COUNT CONFIGURATION"
-                $threadContent = @(
-                    "Set the number of concurrent scanning threads.",
-                    "Higher values scan faster but use more system resources.",
-                    "Current value: $($scanOptions.ThreadCount) threads",
-                    "Recommended range: 10-100 threads",
-                    ""
-                )
-                
-                Show-InfoBox -Title $threadTitle -Content $threadContent -BorderColor Blue -TitleColor Cyan
-                
-                $threads = Read-Host "Enter thread count (1-100)"
+
+                $threads = Read-Host "Enter thread count (1-100) [Current: $($scanOptions.ThreadCount)]"
                 if ([int]::TryParse($threads, [ref]$null) -and [int]$threads -ge 1 -and [int]$threads -le 100) {
                     $scanOptions.ThreadCount = [int]$threads
-                } else {
-                    Write-Host "Invalid input. Keeping current value ($($scanOptions.ThreadCount))" -ForegroundColor Red
+                }
+                $scanOptions.ScanProfile = "Custom"
+            }
+            "^4$" {
+                # Set Custom Ports
+                Clear-Host
+                $portsTitle = "CUSTOM PORT CONFIGURATION"
+                $portsContent = @(
+                    "Enter custom ports to scan (comma-separated)",
+                    "Example: 22,80,443,8080",
+                    "",
+                    "Leave blank to use default ports",
+                    "Current: $(if ($scanOptions.CustomPorts.Count -gt 0) { $scanOptions.CustomPorts -join ',' } else { 'Default' })",
+                    ""
+                )
+
+                Show-InfoBox -Title $portsTitle -Content $portsContent -BorderColor Magenta -TitleColor Yellow
+
+                $portsInput = Read-Host "Enter ports"
+                if ($portsInput) {
+                    try {
+                        $scanOptions.CustomPorts = $portsInput -split ',' | ForEach-Object { [int]$_.Trim() }
+                        Write-Host "Custom ports configured: $($scanOptions.CustomPorts -join ', ')" -ForegroundColor Green
+                        Start-Sleep -Seconds 1
+                    }
+                    catch {
+                        Write-Host "Invalid port format. Keeping previous configuration." -ForegroundColor Red
+                        Start-Sleep -Seconds 2
+                    }
+                }
+                else {
+                    $scanOptions.CustomPorts = @()
+                    Write-Host "Using default ports" -ForegroundColor Green
                     Start-Sleep -Seconds 1
                 }
+                $scanOptions.ScanProfile = "Custom"
             }
             "[Nn]" {
                 $scanOptions.StartIP = $NetworkInfo.FirstIP
@@ -2277,17 +2658,180 @@ function Show-Menu {
             }
             "[Ee]" {
                 $scanOptions.ExportResults = -not $scanOptions.ExportResults
-                
+                $scanOptions.ScanProfile = "Custom"
+
                 $toggleStatus = if ($scanOptions.ExportResults) { "ENABLED" } else { "DISABLED" }
                 $toggleContent = @(
-                    "Results export is now $toggleStatus",
+                    "CSV export is now $toggleStatus",
                     "",
                     "When enabled, scan results will be saved to a CSV file",
                     "Current export path: $($scanOptions.ExportPath)"
                 )
-                
-                Show-InfoBox -Title "EXPORT TOGGLED" -Content $toggleContent -BorderColor Yellow -TitleColor White
+
+                Show-InfoBox -Title "CSV EXPORT TOGGLED" -Content $toggleContent -BorderColor Yellow -TitleColor White
                 Start-Sleep -Seconds 1
+            }
+            "[Jj]" {
+                $scanOptions.ExportJSON = -not $scanOptions.ExportJSON
+                $scanOptions.ScanProfile = "Custom"
+
+                $toggleStatus = if ($scanOptions.ExportJSON) { "ENABLED" } else { "DISABLED" }
+                $toggleContent = @(
+                    "JSON export is now $toggleStatus",
+                    "",
+                    "When enabled, scan results will be saved to a JSON file",
+                    "JSON format is useful for importing data into other tools"
+                )
+
+                Show-InfoBox -Title "JSON EXPORT TOGGLED" -Content $toggleContent -BorderColor Yellow -TitleColor White
+                Start-Sleep -Seconds 1
+            }
+            "[Ff]" {
+                if ($scanOptions.LastScanResults.Count -eq 0) {
+                    Show-InfoBox -Title "NO DATA" -Content @("No scan results to filter. Run a scan first.") -BorderColor Red -TitleColor Yellow
+                    Start-Sleep -Seconds 2
+                }
+                else {
+                    Clear-Host
+                    $filterContent = @(
+                        "Filter last scan results:",
+                        "",
+                        "1. Filter by device type (e.g., 'Server')",
+                        "2. Filter by open port (e.g., '443')",
+                        "3. Filter by hostname pattern (e.g., 'web')",
+                        "4. Show all results",
+                        ""
+                    )
+                    Show-InfoBox -Title "FILTER RESULTS" -Content $filterContent -BorderColor Cyan -TitleColor Yellow
+
+                    $filterChoice = Read-Host "Select filter (1-4)"
+                    $filtered = $null
+
+                    switch ($filterChoice) {
+                        "1" {
+                            $deviceType = Read-Host "Enter device type to filter (regex)"
+                            $filtered = Filter-ScanResults -Results $scanOptions.LastScanResults -DeviceType $deviceType
+                        }
+                        "2" {
+                            $port = Read-Host "Enter port number"
+                            if ([int]::TryParse($port, [ref]$null)) {
+                                $filtered = Filter-ScanResults -Results $scanOptions.LastScanResults -HasPort ([int]$port)
+                            }
+                        }
+                        "3" {
+                            $hostname = Read-Host "Enter hostname pattern (regex)"
+                            $filtered = Filter-ScanResults -Results $scanOptions.LastScanResults -Hostname $hostname
+                        }
+                        "4" {
+                            $filtered = $scanOptions.LastScanResults
+                        }
+                    }
+
+                    if ($filtered) {
+                        Write-Host "`nFiltered Results: $($filtered.Count) hosts found" -ForegroundColor Green
+                        $filtered | Format-Table IPAddress, Hostname, DeviceType, ResponseTime -AutoSize
+                        Read-Host "`nPress Enter to continue"
+                    }
+                }
+            }
+            "[Cc]" {
+                if ($scanOptions.LastScanResults.Count -eq 0) {
+                    Show-InfoBox -Title "NO DATA" -Content @("No previous scan to compare. Run a scan first.") -BorderColor Red -TitleColor Yellow
+                    Start-Sleep -Seconds 2
+                }
+                else {
+                    Clear-Host
+                    $compareContent = @(
+                        "Compare current scan with a previous scan",
+                        "",
+                        "Enter path to previous scan JSON file:",
+                        "(Or press Enter to cancel)",
+                        ""
+                    )
+                    Show-InfoBox -Title "SCAN COMPARISON" -Content $compareContent -BorderColor Magenta -TitleColor Yellow
+
+                    $jsonPath = Read-Host "JSON file path"
+                    if ($jsonPath -and (Test-Path $jsonPath)) {
+                        try {
+                            $previousData = Get-Content $jsonPath -Raw | ConvertFrom-Json
+                            $comparison = Compare-ScanResults -PreviousScan $previousData.Hosts -CurrentScan $scanOptions.LastScanResults
+
+                            Write-Host "`nScan Comparison Results:" -ForegroundColor Cyan
+                            Write-Host "New hosts: " -NoNewline; Write-Host "$($comparison.NewHosts.Count)" -ForegroundColor Green
+                            Write-Host "Removed hosts: " -NoNewline; Write-Host "$($comparison.RemovedHosts.Count)" -ForegroundColor Red
+                            Write-Host "Changed hosts: " -NoNewline; Write-Host "$($comparison.ChangedHosts.Count)" -ForegroundColor Yellow
+                            Write-Host "Unchanged: " -NoNewline; Write-Host "$($comparison.UnchangedCount)" -ForegroundColor White
+
+                            if ($comparison.NewHosts.Count -gt 0) {
+                                Write-Host "`nNew Hosts:" -ForegroundColor Green
+                                $comparison.NewHosts | Format-Table IPAddress, Hostname, DeviceType -AutoSize
+                            }
+
+                            if ($comparison.ChangedHosts.Count -gt 0) {
+                                Write-Host "`nChanged Hosts:" -ForegroundColor Yellow
+                                $comparison.ChangedHosts | ForEach-Object {
+                                    Write-Host "  $($_.IPAddress): " -NoNewline
+                                    Write-Host "Ports changed or device type modified" -ForegroundColor Yellow
+                                }
+                            }
+
+                            Read-Host "`nPress Enter to continue"
+                        }
+                        catch {
+                            Write-Host "Error loading comparison file: $_" -ForegroundColor Red
+                            Start-Sleep -Seconds 2
+                        }
+                    }
+                }
+            }
+            "[Xx]" {
+                Clear-Host
+                $saveContent = @(
+                    "Save current scan configuration",
+                    "",
+                    "Enter path to save config (default: ~/.powersweep/config.json):",
+                    ""
+                )
+                Show-InfoBox -Title "SAVE CONFIGURATION" -Content $saveContent -BorderColor Green -TitleColor White
+
+                $configPath = Read-Host "Config file path (press Enter for default)"
+                $pathToUse = if ($configPath) { $configPath } else { "$env:USERPROFILE\.powersweep\config.json" }
+
+                if (Save-ScanConfig -Config $scanOptions -FilePath $pathToUse) {
+                    Show-InfoBox -Title "SAVED" -Content @("Configuration saved to:", "$pathToUse") -BorderColor Green -TitleColor White
+                }
+                else {
+                    Show-InfoBox -Title "ERROR" -Content @("Failed to save configuration") -BorderColor Red -TitleColor Yellow
+                }
+                Start-Sleep -Seconds 2
+            }
+            "[Ll]" {
+                Clear-Host
+                $loadContent = @(
+                    "Load saved scan configuration",
+                    "",
+                    "Enter path to config file (default: ~/.powersweep/config.json):",
+                    ""
+                )
+                Show-InfoBox -Title "LOAD CONFIGURATION" -Content $loadContent -BorderColor Blue -TitleColor Cyan
+
+                $configPath = Read-Host "Config file path (press Enter for default)"
+                $pathToUse = if ($configPath) { $configPath } else { "$env:USERPROFILE\.powersweep\config.json" }
+
+                $loaded = Load-ScanConfig -FilePath $pathToUse
+                if ($loaded) {
+                    # Merge loaded config into scanOptions
+                    $loaded.PSObject.Properties | ForEach-Object {
+                        if ($scanOptions.ContainsKey($_.Name)) {
+                            $scanOptions[$_.Name] = $_.Value
+                        }
+                    }
+                    Show-InfoBox -Title "LOADED" -Content @("Configuration loaded from:", "$pathToUse") -BorderColor Green -TitleColor White
+                }
+                else {
+                    Show-InfoBox -Title "ERROR" -Content @("Failed to load configuration") -BorderColor Red -TitleColor Yellow
+                }
+                Start-Sleep -Seconds 2
             }
             "[Pp]" {
                 Clear-Host
@@ -2323,19 +2867,26 @@ function Show-Menu {
             "[Aa]" {
                 Clear-Host
                 $aboutContent = @(
-                    "PowerSweep v4.0",
+                    "PowerSweep v4.1 - Enhanced Edition",
                     "Advanced PowerShell Network Discovery Tool",
                     "",
                     "Author: Ulises Paiz",
-                    "License: GNU GPL v3",
+                    "License: MIT License",
                     "",
-                    "Features:",
-                    "- Network host discovery",
-                    "- Port scanning and service detection",
+                    "Core Features:",
+                    "- Network host discovery with ping sweep",
+                    "- Customizable port scanning",
                     "- Network share enumeration",
-                    "- Device type identification",
-                    "- Basic vulnerability assessment",
-                    "- Results export to CSV",
+                    "- Advanced device fingerprinting",
+                    "- Vulnerability assessment",
+                    "",
+                    "New in v4.1:",
+                    "- Scan profiles (Quick/Full/Security)",
+                    "- Custom port list support",
+                    "- JSON export for easy integration",
+                    "- Result filtering by device, port, hostname",
+                    "- Scan comparison to track network changes",
+                    "- Configuration save/load",
                     "",
                     "This tool helps administrators discover and assess",
                     "devices on their networks. Use responsibly and only",
@@ -2343,14 +2894,17 @@ function Show-Menu {
                     "",
                     "Press any key to return to the main menu..."
                 )
-                
+
                 Show-InfoBox -Title "ABOUT POWERSWEEP" -Content $aboutContent -BorderColor Cyan -TitleColor Magenta -Center
-                
+
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "[Ss]" {
                 Clear-Host
-                $results = Scan-Network -StartIP $scanOptions.StartIP -EndIP $scanOptions.EndIP -TimeoutMilliseconds $scanOptions.Timeout -MaxThreads $scanOptions.ThreadCount -ScanPorts $scanOptions.ScanPorts -DiscoverShares $scanOptions.DiscoverShares -ExportResults $scanOptions.ExportResults -ExportPath $scanOptions.ExportPath
+                $results = Scan-Network -StartIP $scanOptions.StartIP -EndIP $scanOptions.EndIP -TimeoutMilliseconds $scanOptions.Timeout -MaxThreads $scanOptions.ThreadCount -ScanPorts $scanOptions.ScanPorts -DiscoverShares $scanOptions.DiscoverShares -ExportResults $scanOptions.ExportResults -ExportPath $scanOptions.ExportPath -CustomPorts $scanOptions.CustomPorts
+
+                # Store results for filtering and comparison
+                $scanOptions.LastScanResults = $results
                 
                 if ($results.Count -gt 0) {
                     Show-ResultSummary -Results $results
@@ -2384,7 +2938,21 @@ function Show-Menu {
                         
                         Export-HtmlReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $htmlPathToUse
                     }
-                    
+
+                    # Ask about JSON export if enabled
+                    if ($scanOptions.ExportJSON) {
+                        $jsonPath = "$env:USERPROFILE\Desktop\PowerSweep_Scan_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
+                        $jsonPathPrompt = Read-Host "Enter JSON path or press Enter for default [$jsonPath]"
+
+                        $jsonPathToUse = if ([string]::IsNullOrWhiteSpace($jsonPathPrompt)) {
+                            $jsonPath
+                        } else {
+                            $jsonPathPrompt
+                        }
+
+                        Export-JsonReport -Results $results -Vulnerabilities $vulnerabilities -ExportPath $jsonPathToUse
+                    }
+
                     # Ask about CSV export if not already exporting
                     if (-not $scanOptions.ExportResults) {
                         $exportContent = @(
