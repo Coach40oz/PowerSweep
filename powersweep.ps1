@@ -934,8 +934,7 @@ function Scan-Network {
     
     $startingContent = @(
         "Starting network scan at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
-        "Discovering active hosts on your network...",
-        ""
+        "Discovering active hosts on your network..."
     )
     
     Show-InfoBox -Title "STARTING SCAN" -Content $startingContent -BorderColor Yellow -TitleColor Green -Center
