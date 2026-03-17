@@ -17,7 +17,6 @@ PowerSweep is an advanced PowerShell network discovery and security assessment t
 - **Enhanced GUI**: Beautiful console interface with info boxes, animated banners, and colored output
 - **Real-time Progress**: Advanced progress bars with scan rate and ETA calculation
 - **Device Type Detection**: Improved device fingerprinting for more accurate identification
-- **HTML Report Generation**: Create beautiful, detailed HTML reports of scan results
 - **Vulnerability Assessment**: Enhanced security scanning with severity ratings and references
 - **Interactive Menu**: Streamlined, intuitive menu system with improved visual feedback
 
@@ -31,7 +30,7 @@ PowerSweep is an advanced PowerShell network discovery and security assessment t
 - **Multithreaded Scanning**: Uses PowerShell runspaces for efficient parallel scanning
 - **Enhanced UI**: Beautiful console interface with detailed progress and results
 - **Scan Profiles**: Quick, Full, and Security presets for different use cases
-- **Export Capabilities**: Save scan results as CSV, HTML, or JSON
+- **Export Capabilities**: Save scan results as CSV or JSON
 - **Result Filtering**: Filter results by device type, port number, or hostname pattern
 - **Scan Comparison**: Compare scans over time to detect network changes
 - **Configuration Persistence**: Save and load scan settings
@@ -138,7 +137,6 @@ PowerSweep 4.1 includes three built-in scan profiles:
 PowerSweep supports three export formats:
 
 - **CSV**: Tabular data for spreadsheets and databases
-- **HTML**: Beautiful visual reports with color coding and charts
 - **JSON**: Structured data for automation, scripting, and tool integration
 
 ### Filtering Results
@@ -189,8 +187,7 @@ irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 |
 # Press 1, select Security profile
 # Press J to enable JSON export
 # Press S to start the scan
-# When prompted, generate HTML report
-# Results saved as HTML + JSON
+# Results saved as JSON
 ```
 
 **Track Network Changes Weekly:**
@@ -271,7 +268,6 @@ Adjust the thread count based on your system's capabilities:
 
 ## ⚠️ Known Issues
 
-- **HTML Report IP Formatting**: Some IP addresses may not display correctly in the HTML report. This is a known issue that will be addressed in a future update.
 - **MAC Address Detection**: Requires administrator privileges; will show as "Unknown" otherwise.
 - **Share Discovery**: May not work on non-Windows devices or without proper authentication.
 - **Device Type Detection Accuracy**: May incorrectly identify devices with unusual port configurations.
@@ -283,7 +279,7 @@ This tool is intended for legitimate network administration and security assessm
 
 ## ✅ Troubleshooting
 
-- **CSV/HTML/JSON Export Issues**: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
+- **CSV/JSON Export Issues**: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
 - **No Devices Found**: Check network connectivity and firewall settings. Try increasing the timeout value.
 - **Slow Scanning**: Reduce thread count to lower system impact or increase it to speed up scanning.
 - **Error Messages**: Most "Connection Failed" messages are normal and indicate hosts are not active or are blocking scans.
