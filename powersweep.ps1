@@ -1294,13 +1294,14 @@ function Scan-Network {
             if ($runspace.Handle.IsCompleted) {
                 try {
                     # Get result and safely handle any errors
-                    $result = $runspace.PowerShell.EndInvoke($runspace.Handle)
-                    
-                    # Process result if not null
-                    if ($result -ne $null) {
+                    $resultCollection = $runspace.PowerShell.EndInvoke($runspace.Handle)
+
+                    # EndInvoke returns a PSDataCollection - check if it has actual data
+                    if ($resultCollection.Count -gt 0 -and $resultCollection[0] -ne $null) {
+                        $result = $resultCollection[0]
                         [void]$results.Add($result)
                         $totalActive++
-                        
+
                         # Update device type counts
                         if (-not $deviceTypeCounts.ContainsKey($result.DeviceType)) {
                             $deviceTypeCounts[$result.DeviceType] = 0
