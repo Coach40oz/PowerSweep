@@ -947,7 +947,7 @@ function Show-Menu {
                     "A simple PowerShell network discovery tool",
                     "",
                     "Author: Ulises Paiz",
-                    "License: GNU GPL v3",
+                    "License: MIT License",
                     "",
                     "This tool scans your network to discover active hosts",
                     "and provides basic information about them.",
