@@ -2866,7 +2866,7 @@ function Show-Menu {
                     "Advanced PowerShell Network Discovery Tool",
                     "",
                     "Author: Ulises Paiz",
-                    "License: GNU GPL v3",
+                    "License: MIT License",
                     "",
                     "Core Features:",
                     "- Network host discovery with ping sweep",
