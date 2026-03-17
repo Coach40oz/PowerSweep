@@ -50,6 +50,7 @@ function Show-InfoBox {
         [string]$Title,
 
         [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
         [ValidateNotNull()]
         [string[]]$Content,
 
