@@ -21,12 +21,44 @@ if ($Host.UI.RawUI.WindowSize.Width -lt 100) {
 }
 
 function Show-InfoBox {
+    <#
+    .SYNOPSIS
+        Displays a formatted information box in the console
+    .PARAMETER Title
+        The title to display in the box header
+    .PARAMETER Content
+        Array of strings to display as content lines
+    .PARAMETER BorderColor
+        Color for the box border (default: Cyan)
+    .PARAMETER TitleColor
+        Color for the title text (default: Yellow)
+    .PARAMETER ContentColor
+        Color for the content text (default: White)
+    .PARAMETER Center
+        Switch to center-align the content
+    #>
+    [CmdletBinding()]
     param (
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
         [string]$Title,
+
+        [Parameter(Mandatory=$true)]
+        [ValidateNotNull()]
         [string[]]$Content,
+
+        [ValidateSet("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow",
+                     "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")]
         [string]$BorderColor = "Cyan",
+
+        [ValidateSet("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow",
+                     "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")]
         [string]$TitleColor = "Yellow",
+
+        [ValidateSet("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow",
+                     "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")]
         [string]$ContentColor = "White",
+
         [switch]$Center
     )
     
@@ -66,11 +98,37 @@ function Show-InfoBox {
 }
 
 function Show-ProgressBar {
+    <#
+    .SYNOPSIS
+        Displays a progress bar in the console
+    .PARAMETER PercentComplete
+        Percentage of completion (0-100)
+    .PARAMETER Width
+        Width of the progress bar in characters
+    .PARAMETER FillColor
+        Color for the filled portion
+    .PARAMETER EmptyColor
+        Color for the empty portion
+    .PARAMETER ShowPercent
+        Switch to display the percentage value
+    #>
+    [CmdletBinding()]
     param (
+        [Parameter(Mandatory=$true)]
+        [ValidateRange(0, 100)]
         [int]$PercentComplete,
+
+        [ValidateRange(10, 200)]
         [int]$Width = 50,
+
+        [ValidateSet("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow",
+                     "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")]
         [string]$FillColor = "Green",
+
+        [ValidateSet("Black", "DarkBlue", "DarkGreen", "DarkCyan", "DarkRed", "DarkMagenta", "DarkYellow",
+                     "Gray", "DarkGray", "Blue", "Green", "Cyan", "Red", "Magenta", "Yellow", "White")]
         [string]$EmptyColor = "DarkGray",
+
         [switch]$ShowPercent
     )
     
@@ -213,13 +271,20 @@ function Get-LocalNetworkInfo {
     
     # Display a visual indicator showing where your IP is in the range
     Write-Host "  $firstUsableIP " -NoNewline -ForegroundColor Gray
-    
+
     # Create a simple visual representation of where the IP is in the range
     $ipInt = [BitConverter]::ToUInt32(([IPAddress]$ipAddress).GetAddressBytes(), 0)
     $firstInt = [BitConverter]::ToUInt32($firstUsableBytes, 0)
     $lastInt = [BitConverter]::ToUInt32($lastUsableBytes, 0)
-    
-    $position = [int](($ipInt - $firstInt) / ($lastInt - $firstInt) * 50)
+
+    # Prevent division by zero
+    $rangeDiff = $lastInt - $firstInt
+    if ($rangeDiff -eq 0) {
+        $position = 0
+    }
+    else {
+        $position = [int](($ipInt - $firstInt) / $rangeDiff * 50)
+    }
     
     Show-ProgressBar -PercentComplete (($position / 50) * 100) -Width 50 -FillColor Green -EmptyColor DarkGray
     Write-Host " $lastUsableIP" -ForegroundColor Gray
@@ -367,15 +432,23 @@ function Scan-Network {
                 $hostname = "Unknown"
             }
             
-            # Try to get MAC address
+            # Try to get MAC address using multiple methods
             $mac = "Unknown"
             try {
-                $arp = arp -a $ipAddress | Select-String $ipAddress
-                if ($arp -match '([0-9A-F]{2}[:-]){5}([0-9A-F]{2})') {
-                    $mac = $matches[0]
+                # Method 1: Try ARP table
+                $arp = arp -a $ipAddress 2>$null | Select-String $ipAddress
+                if ($arp -match '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})') {
+                    $mac = $matches[0].ToUpper()
+                }
+                # Method 2: Try Get-NetNeighbor (Windows PowerShell 4.0+)
+                if ($mac -eq "Unknown") {
+                    $neighbor = Get-NetNeighbor -IPAddress $ipAddress -ErrorAction SilentlyContinue 2>$null
+                    if ($neighbor -and $neighbor.LinkLayerAddress) {
+                        $mac = $neighbor.LinkLayerAddress.ToUpper()
+                    }
                 }
             } catch {
-                # Do nothing, keep as "Unknown"
+                # Keep as "Unknown" if all methods fail
             }
             
             # Determine basic device type
@@ -874,7 +947,7 @@ function Show-Menu {
                     "A simple PowerShell network discovery tool",
                     "",
                     "Author: Ulises Paiz",
-                    "License: GNU GPL v3",
+                    "License: MIT License",
                     "",
                     "This tool scans your network to discover active hosts",
                     "and provides basic information about them.",

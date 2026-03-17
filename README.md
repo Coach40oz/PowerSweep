@@ -1,6 +1,16 @@
-# PowerSweep 4.0
+# PowerSweep 4.1
 
 PowerSweep is an advanced PowerShell network discovery and security assessment tool designed to provide comprehensive network scanning capabilities with an enhanced, intuitive console interface.
+
+## 🔆 What's New in Version 4.1
+
+- **Scan Profiles**: One-click presets (Quick, Full, Security) for common scan scenarios
+- **Custom Port Scanning**: Scan any ports you want with comma-separated lists
+- **JSON Export**: Export results in JSON format for easy integration with other tools
+- **Configuration Save/Load**: Save your preferred settings and load them instantly
+- **Result Filtering**: Filter scan results by device type, port, or hostname
+- **Scan Comparison**: Compare current scan with previous results to track network changes
+- **Improved Menu**: Reorganized menu with cleaner layout and better grouping
 
 ## 🔆 What's New in Version 4.0
 
@@ -14,13 +24,17 @@ PowerSweep is an advanced PowerShell network discovery and security assessment t
 ## 🚀 Features
 
 - **Network Discovery**: Automatically identifies active hosts on your local network
-- **Port Scanning**: Detects open ports and maps them to common services
+- **Port Scanning**: Detects open ports and maps them to common services (custom or default)
 - **Device Fingerprinting**: Identifies device types, operating systems, and roles based on open ports and hostnames
 - **Share Discovery**: Discovers open network shares on Windows devices
 - **Vulnerability Assessment**: Performs security assessment and provides recommendations
 - **Multithreaded Scanning**: Uses PowerShell runspaces for efficient parallel scanning
 - **Enhanced UI**: Beautiful console interface with detailed progress and results
-- **Export Capabilities**: Save scan results as CSV or HTML for detailed analysis
+- **Scan Profiles**: Quick, Full, and Security presets for different use cases
+- **Export Capabilities**: Save scan results as CSV, HTML, or JSON
+- **Result Filtering**: Filter results by device type, port number, or hostname pattern
+- **Scan Comparison**: Compare scans over time to detect network changes
+- **Configuration Persistence**: Save and load scan settings
 
 ## 📋 Requirements
 
@@ -70,81 +84,120 @@ powershell -ExecutionPolicy Bypass -File .\PowerSweep.ps1
 
 ### Main Menu Options
 
-PowerSweep offers an intuitive menu interface with the following configuration options:
+PowerSweep offers an intuitive menu interface organized into sections:
+
+**Scan & Configuration:**
 
 | Option | Description |
 |--------|-------------|
-| 1. IP Range | Set the range of IP addresses to scan |
-| 2. Timeout | Adjust connection timeout in milliseconds (100-5000) |
-| 3. Thread Count | Set the number of concurrent threads (1-100) |
-| 4. Scan Ports | Enable/disable port scanning |
-| 5. Find Shares | Enable/disable network share discovery |
-| 6. Vuln Scan | Enable/disable vulnerability assessment |
-| 7. Export | Enable/disable export to CSV |
-| 8. Export Path | Set the path for exporting results |
-| S. Start Scan | Begin scanning with current settings |
-| Q. Quit | Exit PowerSweep |
+| S | Start network scan with current settings |
+| 1 | Load a scan profile (Quick, Full, or Security) |
+| 2 | Change IP range to custom values |
+| 3 | Configure timeout and thread count |
+| 4 | Set custom ports to scan |
 
-### New HTML Reports
+**Feature Toggles:**
 
-PowerSweep 4.0 introduces beautiful HTML report generation:
+| Option | Description |
+|--------|-------------|
+| T | Toggle port scanning on/off |
+| H | Toggle share discovery on/off |
+| V | Toggle vulnerability scanning on/off |
+| E | Toggle CSV export on/off |
+| J | Toggle JSON export on/off |
+| P | Change export file path |
 
-- After each scan, you'll be prompted to create an HTML report
-- Reports include detailed device information, vulnerability findings, and statistics
-- Fully responsive design works on any device or browser
-- Color-coded results for quick visual analysis
-- Can be shared with team members or included in documentation
+**Tools:**
 
-### Understanding Scan Results
+| Option | Description |
+|--------|-------------|
+| F | Filter last scan results |
+| C | Compare with a previous scan |
+| X | Save current configuration to file |
+| L | Load a saved configuration |
 
-PowerSweep provides results in several sections:
+**Other:**
 
-1. **Network Discovery Output**: Lists all discovered hosts with:
-   - IP Address
-   - Hostname (if available)
-   - Device type
-   - Response time
-   - Open ports and services
-   - Available shares
+| Option | Description |
+|--------|-------------|
+| A | About PowerSweep |
+| Q | Quit PowerSweep |
 
-2. **Results Summary**: Overview of findings including:
-   - Device types detected
-   - Common services found
-   - Hosts with open shares
+### Scan Profiles
 
-3. **Vulnerability Assessment** (if enabled): Security analysis including:
-   - Potentially insecure protocols
-   - Exposed services
-   - Security recommendations with severity ratings
-   - Industry-standard references (CIS, NIST, CVE, etc.)
+PowerSweep 4.1 includes three built-in scan profiles:
+
+| Profile | Timeout | Threads | Ports | Shares | Vulns | Use Case |
+|---------|---------|---------|-------|--------|-------|----------|
+| **Quick** | 200ms | 100 | No | No | No | Fast ping sweep to see what's online |
+| **Full** | 500ms | 50 | Yes (29) | Yes | Yes | Comprehensive network assessment |
+| **Security** | 1000ms | 30 | Yes (29) | Yes | Yes | Security audit with extended port list |
+
+### Export Formats
+
+PowerSweep supports three export formats:
+
+- **CSV**: Tabular data for spreadsheets and databases
+- **HTML**: Beautiful visual reports with color coding and charts
+- **JSON**: Structured data for automation, scripting, and tool integration
+
+### Filtering Results
+
+After running a scan, press `F` to filter results by:
+
+1. **Device type** - Use regex patterns (e.g., `Server`, `Printer`, `Router`)
+2. **Open port** - Find hosts with a specific port open (e.g., `443`, `3389`)
+3. **Hostname** - Search by hostname pattern (e.g., `web`, `dc-`)
+
+### Comparing Scans
+
+Track network changes over time:
+
+1. Run a scan with JSON export enabled (`J` to toggle)
+2. Wait a period of time, then scan again
+3. Press `C` and provide the path to the previous JSON file
+4. See new hosts, removed hosts, and configuration changes
+
+### Saving & Loading Configuration
+
+- Press `X` to save your current scan settings to a file
+- Press `L` to load previously saved settings
+- Default location: `~/.powersweep/config.json`
 
 ### Example Usage Scenarios
 
 **Quick Network Survey:**
 ```powershell
-# Run PowerSweep with default settings
+# Run PowerSweep
 irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
+# Press 1, select Quick profile
 # Press S to start scanning
 ```
 
-**Scan Specific IP Range:**
+**Custom Port Scan:**
 ```powershell
 # Run PowerSweep
 irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
-# Select option 1, then enter 'C' for custom range
-# Enter start IP: 192.168.1.1
-# Enter end IP: 192.168.1.50
+# Press 4, enter: 22,80,443,3389,8080
 # Press S to start scanning
 ```
 
-**Security Audit with HTML Report:**
+**Security Audit with Reports:**
 ```powershell
 # Run PowerSweep
 irm https://raw.githubusercontent.com/Coach40oz/PowerSweep/main/powersweep.ps1 | iex
-# Ensure options 4, 5, 6 (ports, shares, vulnerabilities) are enabled
+# Press 1, select Security profile
+# Press J to enable JSON export
 # Press S to start the scan
-# When prompted, select Y to generate HTML report
-# Results will be saved as an interactive HTML page
+# When prompted, generate HTML report
+# Results saved as HTML + JSON
+```
+
+**Track Network Changes Weekly:**
+```powershell
+# Week 1: Run scan with JSON export
+# Week 2: Run scan again, press C to compare with last week's JSON
+# See exactly what changed on your network
 ```
 
 ## 📊 Understanding the Output
@@ -189,7 +242,7 @@ PowerSweep uses color to help identify important information:
 
 ### Visual Progress Tracking
 
-The new progress bar provides:
+The progress bar provides:
 - Percentage completion
 - Scan rate (IPs/second)
 - Estimated time remaining
@@ -202,9 +255,13 @@ As hosts are discovered, PowerSweep immediately displays:
 - Color-coded device type
 - Response time
 
-### Custom Port Scanning
+### Default Port List
 
-PowerSweep scans common ports by default (21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 3306, 3389, 5900, 8080, 8443, 9100).
+PowerSweep scans these common ports by default (or use option 4 to set custom ports):
+
+20, 21, 22, 23, 25, 53, 80, 88, 110, 123, 135, 139, 143, 389, 443, 445, 465, 587, 636, 993, 995, 1433, 1434, 3306, 3389, 5900, 8080, 8443, 9100
+
+The Security profile adds: 1521, 5432, 5985, 5986, 6379, 27017
 
 ### Thread Management
 
@@ -226,11 +283,12 @@ This tool is intended for legitimate network administration and security assessm
 
 ## ✅ Troubleshooting
 
-- **CSV/HTML Export Issues**: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
+- **CSV/HTML/JSON Export Issues**: If you encounter problems exporting to the Desktop, the script will offer to save to Documents instead.
 - **No Devices Found**: Check network connectivity and firewall settings. Try increasing the timeout value.
 - **Slow Scanning**: Reduce thread count to lower system impact or increase it to speed up scanning.
 - **Error Messages**: Most "Connection Failed" messages are normal and indicate hosts are not active or are blocking scans.
 - **Missing Device Types**: The script uses multiple detection methods; however, some devices may not be identifiable based on available information.
+- **Config Not Loading**: Ensure the config file is valid JSON. Delete `~/.powersweep/config.json` to reset.
 
 # PowerSweep Lite
 
