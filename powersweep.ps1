@@ -13,7 +13,7 @@
     Changelog:
       v4.1 - Added custom port scanning, JSON export, scan profiles, config file support,
              enhanced device fingerprinting, result filtering, and scan comparison
-      v4.1 - Enhanced GUI, HTML reports, vulnerability scanning
+      v4.0 - Enhanced GUI, HTML reports, vulnerability scanning
 #>
 
 # Set console properties for better display
@@ -203,7 +203,7 @@ function Export-JsonReport {
             Vulnerabilities = $Vulnerabilities
         }
 
-        $exportData | ConvertTo-Json -Depth 10 | Out-File -FilePath $ExportPath -Encoding UTF8
+        $exportData | ConvertTo-Json -Depth 5 | Out-File -FilePath $ExportPath -Encoding UTF8
 
         $successContent = @(
             "JSON export completed successfully!",
@@ -309,7 +309,11 @@ function Save-ScanConfig {
             New-Item -Path $directory -ItemType Directory -Force | Out-Null
         }
 
-        $Config | ConvertTo-Json -Depth 5 | Out-File -FilePath $FilePath -Encoding UTF8
+        # Exclude transient state from saved config
+        $configToSave = $Config.Clone()
+        $configToSave.Remove('LastScanResults')
+
+        $configToSave | ConvertTo-Json -Depth 5 | Out-File -FilePath $FilePath -Encoding UTF8
 
         Write-Verbose "Configuration saved to: $FilePath"
         return $true
@@ -337,15 +341,13 @@ function Load-ScanConfig {
     )
 
     try {
-        if (Test-Path -Path $FilePath) {
-            $config = Get-Content -Path $FilePath -Raw | ConvertFrom-Json
-            Write-Verbose "Configuration loaded from: $FilePath"
-            return $config
-        }
-        else {
-            Write-Verbose "No configuration file found at: $FilePath"
-            return $null
-        }
+        $config = Get-Content -Path $FilePath -Raw -ErrorAction Stop | ConvertFrom-Json
+        Write-Verbose "Configuration loaded from: $FilePath"
+        return $config
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        Write-Verbose "No configuration file found at: $FilePath"
+        return $null
     }
     catch {
         Write-Error "Failed to load configuration: $_"
@@ -375,25 +377,29 @@ function Compare-ScanResults {
         [array]$CurrentScan
     )
 
-    $prevIPs = $PreviousScan | Select-Object -ExpandProperty IPAddress
-    $currIPs = $CurrentScan | Select-Object -ExpandProperty IPAddress
+    # Build hashtable lookups for O(1) access
+    $prevByIP = @{}
+    $PreviousScan | ForEach-Object { $prevByIP[$_.IPAddress] = $_ }
+    $currByIP = @{}
+    $CurrentScan | ForEach-Object { $currByIP[$_.IPAddress] = $_ }
 
-    $newHosts = $CurrentScan | Where-Object { $_.IPAddress -notin $prevIPs }
-    $removedHosts = $PreviousScan | Where-Object { $_.IPAddress -notin $currIPs }
-    $unchangedIPs = $prevIPs | Where-Object { $_ -in $currIPs }
+    $newHosts = $CurrentScan | Where-Object { -not $prevByIP.ContainsKey($_.IPAddress) }
+    $removedHosts = $PreviousScan | Where-Object { -not $currByIP.ContainsKey($_.IPAddress) }
 
     $changedHosts = @()
-    foreach ($ip in $unchangedIPs) {
-        $prev = $PreviousScan | Where-Object { $_.IPAddress -eq $ip }
-        $curr = $CurrentScan | Where-Object { $_.IPAddress -eq $ip }
+    foreach ($ip in $prevByIP.Keys) {
+        if ($currByIP.ContainsKey($ip)) {
+            $prev = $prevByIP[$ip]
+            $curr = $currByIP[$ip]
 
-        if (($prev.OpenPorts -ne $curr.OpenPorts) -or
-            ($prev.Hostname -ne $curr.Hostname) -or
-            ($prev.DeviceType -ne $curr.DeviceType)) {
-            $changedHosts += [PSCustomObject]@{
-                IPAddress = $ip
-                PreviousState = $prev
-                CurrentState = $curr
+            if (($prev.OpenPorts -ne $curr.OpenPorts) -or
+                ($prev.Hostname -ne $curr.Hostname) -or
+                ($prev.DeviceType -ne $curr.DeviceType)) {
+                $changedHosts += [PSCustomObject]@{
+                    IPAddress = $ip
+                    PreviousState = $prev
+                    CurrentState = $curr
+                }
             }
         }
     }
@@ -402,7 +408,7 @@ function Compare-ScanResults {
         NewHosts = $newHosts
         RemovedHosts = $removedHosts
         ChangedHosts = $changedHosts
-        UnchangedCount = ($unchangedIPs.Count - $changedHosts.Count)
+        UnchangedCount = (($prevByIP.Keys | Where-Object { $currByIP.ContainsKey($_) }).Count - $changedHosts.Count)
     }
 }
 
@@ -443,7 +449,7 @@ function Filter-ScanResults {
         $filtered = $filtered | Where-Object { $_.DeviceType -match $DeviceType }
     }
 
-    if ($HasPort) {
+    if ($PSBoundParameters.ContainsKey('HasPort')) {
         $filtered = $filtered | Where-Object { $_.OpenPorts -match "\b$HasPort\s*\(" }
     }
 
@@ -2459,6 +2465,7 @@ function Show-Menu {
             "V. Toggle Vulnerability Scanning",
             "E. Toggle CSV Export",
             "J. Toggle JSON Export",
+            "P. Change Export Path",
             "---------------",
             "F. Filter Last Scan Results",
             "C. Compare with Previous Scan",
@@ -2601,18 +2608,6 @@ function Show-Menu {
                     Start-Sleep -Seconds 1
                 }
                 $scanOptions.ScanProfile = "Custom"
-            }
-            "[Nn]" {
-                $scanOptions.StartIP = $NetworkInfo.FirstIP
-                $scanOptions.EndIP = $NetworkInfo.LastIP
-                
-                $resetContent = @(
-                    "IP range reset to network range:",
-                    "$($NetworkInfo.FirstIP) to $($NetworkInfo.LastIP)"
-                )
-                
-                Show-InfoBox -Title "RANGE RESET" -Content $resetContent -BorderColor Green -TitleColor White
-                Start-Sleep -Seconds 1
             }
             "[Tt]" {
                 $scanOptions.ScanPorts = -not $scanOptions.ScanPorts
@@ -2871,7 +2866,7 @@ function Show-Menu {
                     "Advanced PowerShell Network Discovery Tool",
                     "",
                     "Author: Ulises Paiz",
-                    "License: MIT License",
+                    "License: GNU GPL v3",
                     "",
                     "Core Features:",
                     "- Network host discovery with ping sweep",
