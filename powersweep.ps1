@@ -1,4 +1,4 @@
-#requires -RunAsAdministrator
+﻿#requires -RunAsAdministrator
 <#
 .SYNOPSIS
     PowerSweep - Advanced PowerShell Network Scanner with Enhanced GUI
@@ -499,7 +499,7 @@ function Get-LocalNetworkInfo {
     foreach ($adapter in $networkInfo) {
         # Calculate subnet mask in dotted decimal format
         $prefixLength = $adapter.IPv4Address.PrefixLength
-        $subnetMaskInt = [UInt32]([UInt32]::MaxValue -shl (32 - $prefixLength))
+        $subnetMaskInt = if ($prefixLength -eq 0) { [UInt32]0 } else { [UInt32]([UInt32]::MaxValue -shl (32 - $prefixLength)) }
         $subnetMaskBytes = [BitConverter]::GetBytes($subnetMaskInt)
         [Array]::Reverse($subnetMaskBytes)
         $subnetMaskDotted = [IPAddress]$subnetMaskBytes
@@ -536,7 +536,7 @@ function Get-LocalNetworkInfo {
     $gateway = $networkInfo[0].IPv4DefaultGateway.NextHop
     
     # Calculate subnet mask from prefix length
-    $subnetMaskInt = [UInt32]([UInt32]::MaxValue -shl (32 - $prefixLength))
+    $subnetMaskInt = if ($prefixLength -eq 0) { [UInt32]0 } else { [UInt32]([UInt32]::MaxValue -shl (32 - $prefixLength)) }
     $subnetMaskBytes = [BitConverter]::GetBytes($subnetMaskInt)
     [Array]::Reverse($subnetMaskBytes)
     $subnetMask = [IPAddress]$subnetMaskBytes
@@ -624,183 +624,6 @@ function Get-LocalNetworkInfo {
         LastIP = $lastUsableIP.ToString()
         Gateway = $gateway
     }
-}
-
-function Get-DeviceType {
-    param (
-        [string]$ip,
-        [array]$openPorts = @(),
-        [string]$hostname = "",
-        [string]$gw = ""
-    )
-    
-    # Initialize with Unknown
-    $deviceType = "Unknown"
-    $osType = "Unknown"
-    $deviceRole = "Unknown"
-    
-    # Check if it's the gateway
-    if ($ip -eq $gw) {
-        return "Router/Gateway"
-    }
-    
-    # Advanced port pattern recognition
-    $portSignatures = @{
-        # Web services
-        "WebServer" = @(80, 443, 8080, 8443)
-        "ProxyServer" = @(3128, 8080, 8118)
-        
-        # File sharing
-        "FileServer" = @(139, 445, 2049)
-        
-        # Email services
-        "MailServer" = @(25, 110, 143, 465, 587, 993, 995)
-        
-        # Database
-        "DatabaseServer" = @(1433, 1521, 3306, 5432)
-        
-        # Directory services
-        "DirectoryServer" = @(389, 636, 88)
-        
-        # Remote access
-        "RemoteAccess" = @(22, 23, 3389, 5900)
-        
-        # Media servers
-        "MediaServer" = @(1900, 8096, 32469)
-        
-        # IoT and smart home
-        "IoT" = @(1883, 8883, 5683)
-        
-        # VoIP
-        "VoIP" = @(5060, 5061)
-        
-        # Print services
-        "PrintServer" = @(515, 631, 9100)
-        
-        # Monitoring
-        "MonitoringServer" = @(161, 162, 199)
-    }
-    
-    # OS detection by port patterns
-    $osSignatures = @{
-        "Windows" = @(135, 139, 445, 3389, 5985)
-        "Linux" = @(22, 111, 2049)
-        "macOS" = @(548, 5000, 7000)
-        "Network" = @(22, 23, 161, 162, 443, 830)
-    }
-    
-    # Identify device role based on open ports
-    foreach ($signature in $portSignatures.GetEnumerator()) {
-        $matchCount = 0
-        foreach ($port in $signature.Value) {
-            if ($openPorts -contains $port) {
-                $matchCount++
-            }
-        }
-        
-        # If we have at least 2 matching ports or a significant percentage
-        if (($matchCount -ge 2) -or
-            ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($signature.Value.Count -gt 0) -and (($matchCount / $signature.Value.Count) -ge 0.3))) {
-            $deviceRole = $signature.Key
-            break
-        }
-    }
-    
-    # Identify OS based on open ports
-    foreach ($signature in $osSignatures.GetEnumerator()) {
-        $matchCount = 0
-        foreach ($port in $signature.Value) {
-            if ($openPorts -contains $port) {
-                $matchCount++
-            }
-        }
-        
-        # If we have at least 2 matching ports or a significant percentage
-        if (($matchCount -ge 2) -or
-            ($signature.Value.Count -gt 0 -and $matchCount -gt 0 -and ($signature.Value.Count -gt 0) -and (($matchCount / $signature.Value.Count) -ge 0.3))) {
-            $osType = $signature.Key
-            break
-        }
-    }
-    
-    # Special case checks
-    if ($openPorts -contains 80 -and $openPorts -contains 443) {
-        if ($openPorts -contains 8080 -or $openPorts -contains 8443) {
-            $deviceRole = "WebServer"
-        } else {
-            $deviceRole = "Web-enabled Device"
-        }
-    }
-    
-    # Enhanced hostname analysis
-    if ($hostname -ne "Unknown" -and $hostname -ne "") {
-        $lowercaseHostname = $hostname.ToLower()
-        
-        # Router/Network devices
-        if ($lowercaseHostname -match "router|gateway|ap|accesspoint|wifi|ubnt|unifi|mikrotik|cisco|juniper|tplink|dlink|netgear|asus") {
-            $deviceRole = "NetworkDevice"
-            $osType = "Network"
-        }
-        
-        # Printers
-        if ($lowercaseHostname -match "printer|hpprinter|epson|canon|brother|lexmark|zebra|dymo|print|mfp") {
-            $deviceRole = "Printer"
-            $osType = "Embedded"
-        }
-        
-        # Cameras/Security
-        if ($lowercaseHostname -match "cam|camera|ipcam|nvr|dvr|dahua|hikvision|axis|bosch|cctv|surveillan|security") {
-            $deviceRole = "Camera"
-            $osType = "Embedded"
-        }
-        
-        # Media devices
-        if ($lowercaseHostname -match "tv|roku|firetv|appletv|chromecast|shield|media|smart-tv|smarttv|samsung|lg|sony|philips|hisense") {
-            $deviceRole = "MediaDevice"
-            $osType = "Embedded"
-        }
-        
-        # Mobile devices
-        if ($lowercaseHostname -match "phone|iphone|android|ipad|tablet|mobile|pixel|galaxy|oneplus|xiaomi") {
-            $deviceRole = "MobileDevice"
-            if ($lowercaseHostname -match "iphone|ipad|ipod") {
-                $osType = "iOS"
-            }
-            elseif ($lowercaseHostname -match "android|pixel|galaxy|oneplus|xiaomi") {
-                $osType = "Android"
-            }
-        }
-        
-        # Servers
-        if ($lowercaseHostname -match "server|srv|dc|domain|ad|exchange|sql|web|mail|dns|dhcp|ftp|app|backup|db") {
-            $deviceRole = "Server"
-            if ($lowercaseHostname -match "win") {
-                $osType = "Windows"
-            }
-            elseif ($lowercaseHostname -match "lnx|linux|ubuntu|debian|centos|rhel|fedora") {
-                $osType = "Linux"
-            }
-        }
-        
-        # IoT devices
-        if ($lowercaseHostname -match "iot|smart|nest|hue|echo|alexa|google-home|ring|blink|wyze|eufy") {
-            $deviceRole = "IoT"
-            $osType = "Embedded"
-        }
-    }
-    
-    # Combine OS and role for detailed device type
-    if ($osType -ne "Unknown" -and $deviceRole -ne "Unknown") {
-        $deviceType = "$osType $deviceRole"
-    }
-    elseif ($osType -ne "Unknown") {
-        $deviceType = $osType
-    }
-    elseif ($deviceRole -ne "Unknown") {
-        $deviceType = $deviceRole
-    }
-    
-    return $deviceType
 }
 
 function Scan-Network {
@@ -911,7 +734,7 @@ function Scan-Network {
     Show-InfoBox -Title "SCAN CONFIGURATION" -Content $scanInfo -BorderColor Magenta -TitleColor Yellow
     
     # Check if the range is reasonable (prevent huge ranges)
-    if ($endIPInt - $startIPInt > 10000) {
+    if (($endIPInt - $startIPInt) -gt 10000) {
         $warningContent = @(
             "Very large IP range detected ($($endIPInt - $startIPInt + 1) addresses).",
             "This may take a very long time to complete."
@@ -1170,8 +993,8 @@ function Scan-Network {
             $mac = "Unknown"
             try {
                 # Method 1: Try ARP table
-                $arp = arp -a $ipAddress 2>$null | Select-String $ipAddress
-                if ($arp -match '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})') {
+                $arpOutput = arp -a $ipAddress 2>$null | Out-String
+                if ($arpOutput -match '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})') {
                     $mac = $matches[0].ToUpper()
                 }
                 # Method 2: Try Get-NetNeighbor (Windows PowerShell 4.0+)
@@ -1206,7 +1029,7 @@ function Scan-Network {
                     } catch {
                         # Connection failed, port is closed or filtered
                     } finally {
-                        if ($tcpClient.Connected) { $tcpClient.Close() }
+                        $tcpClient.Dispose()
                     }
                 }
             }
@@ -2155,19 +1978,19 @@ function Show-Menu {
                 }
 
                 if ($profileName) {
-                    $profile = Get-ScanProfile -ProfileName $profileName
-                    $scanOptions.Timeout = $profile.Timeout
-                    $scanOptions.ThreadCount = $profile.ThreadCount
-                    $scanOptions.ScanPorts = $profile.ScanPorts
-                    $scanOptions.DiscoverShares = $profile.DiscoverShares
-                    $scanOptions.VulnerabilityScan = $profile.VulnerabilityScan
-                    $scanOptions.CustomPorts = $profile.Ports
+                    $selectedProfile = Get-ScanProfile -ProfileName $profileName
+                    $scanOptions.Timeout = $selectedProfile.Timeout
+                    $scanOptions.ThreadCount = $selectedProfile.ThreadCount
+                    $scanOptions.ScanPorts = $selectedProfile.ScanPorts
+                    $scanOptions.DiscoverShares = $selectedProfile.DiscoverShares
+                    $scanOptions.VulnerabilityScan = $selectedProfile.VulnerabilityScan
+                    $scanOptions.CustomPorts = $selectedProfile.Ports
                     $scanOptions.ScanProfile = $profileName
 
                     $successContent = @(
                         "Profile '$profileName' loaded successfully!",
                         "",
-                        "$($profile.Description)"
+                        "$($selectedProfile.Description)"
                     )
                     Show-InfoBox -Title "PROFILE LOADED" -Content $successContent -BorderColor Green -TitleColor White
                     Start-Sleep -Seconds 1
